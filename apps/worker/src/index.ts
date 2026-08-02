@@ -8,6 +8,7 @@ import {
   sweepStuckClassifications,
   type ClassifyRequestPayload,
 } from "./jobs/classify-request.js";
+import { runHeartbeatSweep, SWEEP_INTERVAL_MS } from "./jobs/heartbeat-sweep.js";
 import { QUEUES, RETRY_POLICY, type QueueName } from "./queues.js";
 
 /**
@@ -95,6 +96,21 @@ async function main(): Promise<void> {
     });
   }, 30_000);
   sweepTimer.unref();
+
+  // §C4 — take stale-available experts offline. Interval rather than a queued
+  // job: nothing enqueues it, only time passing makes it due.
+  const presenceTimer = setInterval(() => {
+    void runHeartbeatSweep(container).catch((error: unknown) => {
+      logger.error("heartbeat sweep failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, SWEEP_INTERVAL_MS);
+  presenceTimer.unref();
+  logger.info("presence sweep scheduled", {
+    everySeconds: SWEEP_INTERVAL_MS / 1000,
+    staleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+  });
 
   logger.info("worker ready");
 

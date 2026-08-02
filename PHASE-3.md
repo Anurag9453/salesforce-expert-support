@@ -23,7 +23,7 @@ This is requirements 1–3 made concrete. **Time yourself.**
 
 1. `/dashboard` → **Get Expert Help**
 2. Type only a description. Something real:
-   > *Our Apex trigger on Account hits "Too many SOQL queries: 101" when we bulk load about 4000 records. The trigger looks bulkified to me but it still dies around record 3800.*
+   > _Our Apex trigger on Account hits "Too many SOQL queries: 101" when we bulk load about 4000 records. The trigger looks bulkified to me but it still dies around record 3800._
 3. Press **Get Expert Help**
 
 **What to look for:**
@@ -32,7 +32,7 @@ This is requirements 1–3 made concrete. **Time yourself.**
   required beyond the description. That is the whole form until you ask for more.
 - You never wrote a title — the status page has one, taken from your first sentence.
 - Within a few seconds the status moves **Reading your problem → Finding the right Salesforce
-  expert…**, and a *"What we think this is about"* panel appears with `Apex`, `Triggers`,
+  expert…**, and a _"What we think this is about"_ panel appears with `Apex`, `Triggers`,
   `Governor Limits` and difficulty **advanced**. You told it none of that.
 - The credential line under the textarea: one calm sentence, grey, no icon, no red. Judge whether
   it reads as guidance rather than a warning label.
@@ -41,15 +41,15 @@ This is requirements 1–3 made concrete. **Time yourself.**
 
 Cancel the request, then start another and click **+ Add detail (optional)**.
 
-- Category chips appear with *"Only if you already know — we work it out from your description
-  either way, and guessing wrong costs you nothing."* Read that line and tell me if it lands.
+- Category chips appear with _"Only if you already know — we work it out from your description
+  either way, and guessing wrong costs you nothing."_ Read that line and tell me if it lands.
 - Pick a category → specific skills appear for it. Pick none and the form still submits.
 - **Choose files** — attach a `.log` or screenshot. It uploads immediately, so submitting is
   instant rather than waiting on the file.
 
 ### Flow 3 — The credential warning (requirement 5)
 
-Start a request and paste something that *looks* like a leak:
+Start a request and paste something that _looks_ like a leak:
 
 ```
 Callout to our REST endpoint fails.
@@ -60,10 +60,10 @@ and the named credential has password=hunter2please
 **What to look for:**
 
 - The request still submits. It is not blocked, and there is no modal.
-- On the status page, *"What you told us"* shows the session ID and password replaced with
+- On the status page, _"What you told us"_ shows the session ID and password replaced with
   `[SALESFORCE_SESSION_ID_REMOVED]` and `password=[REMOVED]` — but the sentence around them is
   intact and still readable.
-- The message says *"…removed it before saving. Nothing was shared."* Judge the tone: it should
+- The message says _"…removed it before saving. Nothing was shared."_ Judge the tone: it should
   read as helpful, not as an accusation. This is the balance you asked for and the part I would
   most like your eye on.
 
@@ -71,7 +71,7 @@ and the named credential has password=hunter2please
 
 Describe something with no recognisable Salesforce vocabulary:
 
-> *Everything is broken and nobody on my team knows what changed since yesterday afternoon.*
+> _Everything is broken and nobody on my team knows what changed since yesterday afternoon._
 
 The classifier finds nothing and returns null. **The request still reaches "Finding the right
 Salesforce expert…"** — it just has less to go on. That is requirement 4: classification is an
@@ -79,8 +79,8 @@ accelerator, never a gate.
 
 ### Flow 5 — Cancel
 
-From any in-flight request, **Cancel request** → *"Your payment authorization has been released.
-Nothing was charged."* The dashboard returns to the **Get Expert Help** card.
+From any in-flight request, **Cancel request** → _"Your payment authorization has been released.
+Nothing was charged."_ The dashboard returns to the **Get Expert Help** card.
 
 ### Also worth a look
 
@@ -111,13 +111,13 @@ Nothing was charged."* The dashboard returns to the **Get Expert Help** card.
   ✓ worker boots                           1.8s
 ```
 
-| Gate requirement | Result |
-| --- | --- |
-| Tests | **171 passing** (was 116) — 151 domain, 13 adapters, 7 contracts |
-| Lint | Clean, 7 packages, zero warnings |
-| TypeScript | `tsc --noEmit` clean, `strict` + `noUncheckedIndexedAccess` |
-| Fresh migrations | 3 migrations → throwaway database, 28 tables, 5 partial indexes asserted |
-| Build / boot | Web builds 22 routes; worker registers 6 queues **and now runs the classify handler** |
+| Gate requirement | Result                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| Tests            | **171 passing** (was 116) — 151 domain, 13 adapters, 7 contracts                      |
+| Lint             | Clean, 7 packages, zero warnings                                                      |
+| TypeScript       | `tsc --noEmit` clean, `strict` + `noUncheckedIndexedAccess`                           |
+| Fresh migrations | 3 migrations → throwaway database, 28 tables, 5 partial indexes asserted              |
+| Build / boot     | Web builds 22 routes; worker registers 6 queues **and now runs the classify handler** |
 
 **Exit criterion met:** a customer submits a request with attachments, it reaches `SEARCHING`, and
 the state history is written — verified over HTTP with real cookies.
@@ -139,8 +139,8 @@ Attachments upload the moment they are chosen, so pressing submit is never block
 
 Three things enforce this rather than just saying it:
 
-- The picker's own copy: *"Only if you already know — we work it out from your description either
-  way, and guessing wrong costs you nothing."*
+- The picker's own copy: _"Only if you already know — we work it out from your description either
+  way, and guessing wrong costs you nothing."_
 - **A customer-selected skill is never stored as `isPrimary`.** Primary drives the hard competence
   filter in Phase 5, and that judgement belongs to the classifier and the description, not to the
   person with the problem. Asserted in both unit and HTTP tests.
@@ -163,11 +163,11 @@ paying customer's request to depend on, and a stuck request never resolves and n
 ### 5 — Prominent but not frightening
 
 One grey line under the textarea, always present, no icon. It explains and reassures rather than
-warning. When something *is* detected, the message is specific and calm:
+warning. When something _is_ detected, the message is specific and calm:
 
-> *We spotted what looks like a Salesforce session ID in your description and removed it before
+> _We spotted what looks like a Salesforce session ID in your description and removed it before
 > saving. Nothing was shared. Please avoid pasting credentials or production data — an expert never
-> needs them to help you.*
+> needs them to help you._
 
 A test asserts the message contains none of "violation", "forbidden", "breach", "danger", "illegal".
 The request is never blocked and there is no modal.
@@ -261,14 +261,14 @@ symptom was "Internal Server Error" from routes that were fine.
 
 **New — domain**
 
-| File | Why |
-| --- | --- |
-| `security/secret-scanner.ts` | 9 patterns, redaction, calm messaging (27 tests) |
-| `support-requests/request-service.ts` | redact → price → authorize → persist → CLASSIFYING |
-| `classification/classification-service.ts` | always reaches SEARCHING, six failure paths tested |
-| `ports/rate-limiter.ts` | `RateLimiter` + the named budgets |
-| `ports/request-repositories.ts` | request, taxonomy, pricing, attachment, scheduler ports |
-| `support-requests/in-memory-request-world.ts` | faithful fakes incl. optimistic version checks |
+| File                                          | Why                                                     |
+| --------------------------------------------- | ------------------------------------------------------- |
+| `security/secret-scanner.ts`                  | 9 patterns, redaction, calm messaging (27 tests)        |
+| `support-requests/request-service.ts`         | redact → price → authorize → persist → CLASSIFYING      |
+| `classification/classification-service.ts`    | always reaches SEARCHING, six failure paths tested      |
+| `ports/rate-limiter.ts`                       | `RateLimiter` + the named budgets                       |
+| `ports/request-repositories.ts`               | request, taxonomy, pricing, attachment, scheduler ports |
+| `support-requests/in-memory-request-world.ts` | faithful fakes incl. optimistic version checks          |
 
 **New — adapters**
 
@@ -323,7 +323,7 @@ Lib: `queues` · `rate-limit` · `request-view`
 **None.** Two additions worth recording:
 
 - **A recovery sweep in the worker** for requests stranded in `CLASSIFYING`. §17 rules out polling
-  for *dispatch*; this is a janitor on a 30-second cadence, and without it a lost enqueue leaves a
+  for _dispatch_; this is a janitor on a 30-second cadence, and without it a lost enqueue leaves a
   paid request invisible forever.
 - **The web app runs a send-only pg-boss client.** It enqueues but registers no handlers, so the
   dispatch loop stays entirely in the worker per D2.

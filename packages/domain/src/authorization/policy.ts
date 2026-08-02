@@ -27,6 +27,16 @@ export const PERMISSIONS = [
   "expert_application:submit_own",
   // Expert workspace, gated on an APPROVED application
   "expert_workspace:access",
+  // Expert self-service. Available to any applicant — an expert can keep their
+  // profile and skills current while under review. Only *availability* is
+  // gated on approval (requirement 3), and that gate lives in the service
+  // because it depends on the application status rather than on a role.
+  "expert_profile:read_own",
+  "expert_profile:update_own",
+  "expert_skill:read_own",
+  "expert_skill:update_own",
+  "expert_availability:read_own",
+  "expert_availability:update_own",
   // Support requests, from the customer side
   "support_request:create",
   "support_request:read_own",
@@ -35,6 +45,7 @@ export const PERMISSIONS = [
   // Administration
   "admin:read_experts",
   "admin:read_requests",
+  "admin:verify_expert_skill",
   "admin:review_expert",
   "admin:suspend_expert",
   "admin:reinstate_expert",
@@ -65,6 +76,7 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
   switch (permission) {
     case "admin:read_experts":
     case "admin:read_requests":
+    case "admin:verify_expert_skill":
     case "admin:review_expert":
     case "admin:suspend_expert":
     case "admin:reinstate_expert":
@@ -110,6 +122,19 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
 
     case "expert_workspace:access":
       return canAccessExpertWorkspace(actor);
+
+    // Requires an application to exist, but NOT an approved one: a DRAFT
+    // applicant lists their skills as part of applying. Requirement 3's gate is
+    // on going AVAILABLE, which the availability service checks against the
+    // application status — a permission cannot express it, because the policy
+    // deliberately knows nothing about what "matchable" means.
+    case "expert_profile:read_own":
+    case "expert_profile:update_own":
+    case "expert_skill:read_own":
+    case "expert_skill:update_own":
+    case "expert_availability:read_own":
+    case "expert_availability:update_own":
+      return actor.expert !== undefined;
 
     default: {
       // Exhaustiveness: a new Permission without a branch fails to compile

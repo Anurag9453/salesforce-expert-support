@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { can, isDomainError } from "@sfx/domain";
 import { Alert, Card, CardBody, ExpertStatusBadge } from "@/components/ui";
 import { ExpertApplicationForm } from "@/components/expert/application-form";
@@ -60,10 +61,24 @@ export default async function ExpertApplicationPage() {
 
       {view.status === "APPROVED" ? (
         <Alert tone="success" title="Approved">
-          You can be matched with customers once you go available. The availability toggle arrives
-          in Phase 4.
+          You can be matched with customers once you go available.{" "}
+          <Link href="/expert" className="underline">
+            Open your workspace
+          </Link>
+          .
         </Alert>
       ) : null}
+
+      {/*
+        Skills are what a reviewer assesses, so they are editable from the moment
+        an application exists — long before approval gates availability.
+      */}
+      <Alert tone="info" title="Your skills are part of this application">
+        <Link href="/expert/skills" className="underline">
+          Add the Salesforce skills you want to be matched on
+        </Link>
+        , with an honest depth rating for each.
+      </Alert>
 
       {view.status === "SUSPENDED" ? (
         <Alert tone="warning" title="Suspended">

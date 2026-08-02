@@ -68,4 +68,43 @@ describe("server env", () => {
     const env = parseServerEnv({ ...valid, CLASSIFIER_TIMEOUT_MS: "2500" });
     expect(env.CLASSIFIER_TIMEOUT_MS).toBe(2500);
   });
+
+  describe("presence timings (§C4)", () => {
+    it("defaults to a 45s ping inside a 3-minute window", () => {
+      const env = parseServerEnv(valid);
+      expect(env.HEARTBEAT_INTERVAL_SECONDS).toBe(45);
+      expect(env.HEARTBEAT_STALE_AFTER_SECONDS).toBe(180);
+    });
+
+    it("rejects a ping slower than the timeout", () => {
+      // Otherwise every expert who is genuinely present gets swept offline —
+      // a config error that would look exactly like a broken sweep.
+      expect(() =>
+        parseServerEnv({
+          ...valid,
+          HEARTBEAT_INTERVAL_SECONDS: "200",
+          HEARTBEAT_STALE_AFTER_SECONDS: "180",
+        }),
+      ).toThrow(EnvValidationError);
+    });
+
+    it("rejects equal values too", () => {
+      expect(() =>
+        parseServerEnv({
+          ...valid,
+          HEARTBEAT_INTERVAL_SECONDS: "180",
+          HEARTBEAT_STALE_AFTER_SECONDS: "180",
+        }),
+      ).toThrow(EnvValidationError);
+    });
+
+    it("allows a short window so the sweep can be demonstrated in seconds", () => {
+      const env = parseServerEnv({
+        ...valid,
+        HEARTBEAT_INTERVAL_SECONDS: "5",
+        HEARTBEAT_STALE_AFTER_SECONDS: "15",
+      });
+      expect(env.HEARTBEAT_STALE_AFTER_SECONDS).toBe(15);
+    });
+  });
 });

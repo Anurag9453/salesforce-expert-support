@@ -9,4 +9,5 @@ export * from "./env.js";
 export * from "./primitives.js";
 export * from "./api.js";
 export * from "./experts.js";
+export * from "./expert-workspace.js";
 export * from "./requests.js";

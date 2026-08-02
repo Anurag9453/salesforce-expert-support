@@ -2,7 +2,16 @@
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env", "packages/config/**"],
   "globalEnv": ["NODE_ENV", "CI"],
-  "globalPassThroughEnv": ["DATABASE_URL", "DIRECT_DATABASE_URL"],
+  // Settings an operator tunes from the shell rather than from .env. Turbo
+  // strips anything not listed here, so without these a
+  // `HEARTBEAT_STALE_AFTER_SECONDS=10 pnpm dev` silently keeps the 180s
+  // default — which looks exactly like a broken sweep.
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "DIRECT_DATABASE_URL",
+    "HEARTBEAT_INTERVAL_SECONDS",
+    "HEARTBEAT_STALE_AFTER_SECONDS"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

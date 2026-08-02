@@ -46,6 +46,17 @@
       "Bash(:*TRUNCATE:*)",
       "Bash(:*deleteMany:*)"
     ],
-    "deny": ["Read(./.env)", "Read(./.env.*)", "Bash(cat .env)", "Bash(cat ./.env)"]
+    "//deny": ".env.example is committed and holds only placeholders, so it stays readable; every real .env is denied.",
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.env.test)",
+      "Read(./apps/**/.env)",
+      "Read(./apps/**/.env.local)",
+      "Bash(cat .env)",
+      "Bash(cat ./.env)"
+    ]
   }
 }

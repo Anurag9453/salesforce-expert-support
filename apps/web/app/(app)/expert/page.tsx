@@ -1,21 +1,40 @@
+import { canGoAvailable, can } from "@sfx/domain";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { can } from "@sfx/domain";
-import { Alert, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { AvailabilityPanel } from "@/components/expert/availability-panel";
+import {
+  Alert,
+  Badge,
+  buttonClasses,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui";
+import { toAvailabilityLogView, toAvailabilityView } from "@/lib/availability-view";
+import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Expert workspace" };
 export const dynamic = "force-dynamic";
 
+const SOURCE_COPY: Record<string, string> = {
+  MANUAL_TOGGLE: "You changed it",
+  HEARTBEAT_TIMEOUT: "We stopped hearing from your browser",
+  OFFER_LOCK: "A request was offered to you",
+  OFFER_RELEASED: "The offer ended",
+  SESSION_START: "A session started",
+  SESSION_END: "A session ended",
+  ADMIN: "Changed by an administrator",
+};
+
 /**
  * Expert workspace.
  *
- * Gated on an APPROVED application, not on the EXPERT role (requirement 2).
- * A user holding the role with a DRAFT or SUSPENDED application is redirected
- * back to their application — server-side, before anything renders.
- *
- * The workspace itself is thin by design: the availability toggle is Phase 4,
- * incoming requests are Phase 6, earnings are Phase 9.
+ * Gated on an APPROVED application, not on the EXPERT role (Phase 2,
+ * requirement 2). Everything the page shows about eligibility is computed by the
+ * server; the page passes verdicts down, never ingredients.
  */
 export default async function ExpertWorkspacePage() {
   const actor = await requireActor();
@@ -23,36 +42,128 @@ export default async function ExpertWorkspacePage() {
     redirect(actor.expert ? "/expert-application" : "/dashboard");
   }
 
+  const { expertAvailability, expertSkills } = getContainer();
+  const [availability, skills, history] = await Promise.all([
+    expertAvailability.getOwn(actor),
+    expertSkills.listOwn(actor),
+    expertAvailability.history(actor, 10),
+  ]);
+
+  const verified = skills.filter((skill) => skill.verified).length;
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Expert workspace</h1>
-        <p className="mt-1 text-sm text-ink-muted">Your application is approved.</p>
+        <p className="mt-1 text-sm text-ink-muted">{actor.email}</p>
       </header>
 
-      <Alert tone="info" title="Not yet receiving requests">
-        Approval makes you eligible. Actually being matched also needs the availability toggle
-        (Phase 4) and the dispatch loop (Phase 6).
-      </Alert>
+      <AvailabilityPanel
+        initial={toAvailabilityView(availability)}
+        canGoAvailable={canGoAvailable(actor.expert?.status ?? "DRAFT")}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Availability</CardTitle>
+          <CardHeader className="flex items-center justify-between gap-3">
+            <CardTitle>Your skills</CardTitle>
+            <Link
+              href="/expert/skills"
+              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            >
+              Manage
+            </Link>
           </CardHeader>
-          <CardBody>
-            <p className="text-sm text-ink-muted">Phase 4.</p>
+          <CardBody className="space-y-3">
+            {skills.length === 0 ? (
+              // Not decoration — an expert with no skills is invisible to
+              // matching, so this is the single most important thing on the page
+              // for someone in that state.
+              <Alert tone="warning" title="No skills listed">
+                We match on skills. Until you list at least one, no request can reach you.
+              </Alert>
+            ) : (
+              <>
+                <p className="text-sm text-ink-muted">
+                  {skills.length} listed
+                  {verified > 0 ? ` · ${verified} verified by our team` : ""}
+                </p>
+                <ul className="flex flex-wrap gap-1.5">
+                  {skills.slice(0, 8).map((skill) => (
+                    <li key={skill.slug}>
+                      <Badge tone={skill.verified ? "available" : "neutral"}>
+                        {skill.name}
+                        {skill.verified ? " ✓" : ""}
+                      </Badge>
+                    </li>
+                  ))}
+                  {skills.length > 8 && (
+                    <li>
+                      <Badge>+{skills.length - 8} more</Badge>
+                    </li>
+                  )}
+                </ul>
+              </>
+            )}
           </CardBody>
         </Card>
+
         <Card>
-          <CardHeader>
-            <CardTitle>Incoming requests</CardTitle>
+          <CardHeader className="flex items-center justify-between gap-3">
+            <CardTitle>Your profile</CardTitle>
+            <Link
+              href="/expert/profile"
+              className={buttonClasses({ variant: "secondary", size: "sm" })}
+            >
+              Edit
+            </Link>
           </CardHeader>
           <CardBody>
-            <p className="text-sm text-ink-muted">Phase 6.</p>
+            <p className="text-sm text-ink-muted">
+              Keep your summary, certifications and languages current. Approval status and
+              verification are set by our review team and are not editable here.
+            </p>
           </CardBody>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Availability history</CardTitle>
+        </CardHeader>
+        <CardBody>
+          {history.length === 0 ? (
+            <p className="text-sm text-ink-muted">Nothing yet.</p>
+          ) : (
+            // Every change, with its cause. A status that changed on its own is
+            // only acceptable if the expert can find out why.
+            <ul className="divide-y divide-border text-sm">
+              {history.map((entry) => {
+                const view = toAvailabilityLogView(entry);
+                return (
+                  <li key={view.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+                    <span className="font-medium text-ink">
+                      {view.fromStatus ? `${view.fromStatus} → ` : ""}
+                      {view.toStatus}
+                    </span>
+                    <span className="text-ink-muted">
+                      {SOURCE_COPY[view.source] ?? view.source}
+                    </span>
+                    <time className="ml-auto text-xs text-ink-subtle" dateTime={view.createdAt}>
+                      {new Date(view.createdAt).toLocaleString()}
+                    </time>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
+
+      <Alert tone="info" title="Coming next">
+        Being eligible means you are in the pool. Requests start arriving once the dispatch loop
+        lands in Phase 5.
+      </Alert>
     </div>
   );
 }

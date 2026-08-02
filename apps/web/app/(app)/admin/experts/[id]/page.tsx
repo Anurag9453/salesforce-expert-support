@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { can, isDomainError } from "@sfx/domain";
+import { can, isDomainError, PROFICIENCY_GUIDANCE } from "@sfx/domain";
 import {
   Alert,
   Badge,
@@ -12,6 +12,8 @@ import {
   ExpertStatusBadge,
 } from "@/components/ui";
 import { DecisionPanel } from "@/components/admin/decision-panel";
+import { SkillVerification } from "@/components/admin/skill-verification";
+import { toExpertSkillView } from "@/lib/availability-view";
 import { getContainer } from "@/lib/container";
 import { toExpertApplicationView } from "@/lib/expert-view";
 import { requireActor } from "@/lib/session";
@@ -32,13 +34,17 @@ export default async function AdminExpertDetailPage({
   if (!can(actor, "admin:read_experts")) redirect("/dashboard");
 
   const { id } = await params;
-  const { expertAdmin } = getContainer();
+  const { expertAdmin, expertSkills } = getContainer();
 
   let view;
   let history;
+  let skills;
   try {
     view = toExpertApplicationView(await expertAdmin.get(actor, id));
-    history = await expertAdmin.history(actor, id);
+    [history, skills] = await Promise.all([
+      expertAdmin.history(actor, id),
+      expertSkills.listForExpert(actor, id),
+    ]);
   } catch (error) {
     if (isDomainError(error) && error.code === "NOT_FOUND") notFound();
     throw error;
@@ -65,6 +71,24 @@ export default async function AdminExpertDetailPage({
         </CardHeader>
         <CardBody>
           <DecisionPanel application={view} />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Declared skills</CardTitle>
+        </CardHeader>
+        <CardBody>
+          {/*
+            The expert declares; only an admin verifies (requirement 2). There is
+            no control on the expert's own skills page that could set this, and
+            no request shape that could carry it.
+          */}
+          <SkillVerification
+            expertProfileId={id}
+            initial={skills.map(toExpertSkillView)}
+            guidance={PROFICIENCY_GUIDANCE}
+          />
         </CardBody>
       </Card>
 

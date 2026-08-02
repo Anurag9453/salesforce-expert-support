@@ -1,6 +1,6 @@
 # Running it locally
 
-Verified working on this machine as of Phase 2.
+Verified working on this machine as of Phase 4.
 
 ---
 
@@ -38,7 +38,7 @@ Then open:
 > ## **http://localhost:3000**
 
 `pnpm dev` runs both apps. Web is on **3000**; the worker has no HTTP surface — it boots, registers
-its six queues, and idles until Phase 3 gives it work.
+its six queues, classifies incoming requests, and sweeps stale-available experts offline.
 
 **Health check:** http://localhost:3000/api/v1/health should return
 `{"status":"ok", ... "payment=mock payout=mock"}`.
@@ -57,8 +57,8 @@ the only privileged step happens out of band, at the command line.
 2. Any email (it is never sent to), any name, **password of at least 12 characters**
 3. You land on `/dashboard`
 
-What to look at: role badge shows `customer` only. "Get Expert Help" is present but disabled — that
-is Phase 3. The right-hand card offers "Become an Expert" on this same account.
+What to look at: role badge shows `customer` only. "Get Expert Help" opens the request form. The
+right-hand card offers "Become an Expert" on this same account.
 
 ### 2. Expert applicant → approved expert
 
@@ -103,6 +103,26 @@ Also worth trying: **Reject** it and then, as the applicant, edit the form — a
 reopens as a draft so it can be resubmitted. And **Suspend** an approved expert, then check the
 applicant's `/expert` immediately stops opening.
 
+### 4. Expert availability (Phase 4)
+
+Once approved, `/expert` opens with the availability banner. Two things are worth knowing before you
+try to watch the presence sweep:
+
+**The sweep is slow on purpose.** The default window is three minutes, chosen against browser
+background-tab throttling. To see it in under a minute, start the dev servers with a short one:
+
+```bash
+HEARTBEAT_STALE_AFTER_SECONDS=20 HEARTBEAT_INTERVAL_SECONDS=5 pnpm dev
+```
+
+The worker prints `presence sweep scheduled … staleAfterSeconds: 20` at boot. If it prints `180`,
+the override did not reach it.
+
+**It sweeps on a 30-second cadence**, so budget the window plus up to 30 seconds. Go available,
+close the tab, wait, reopen — you are offline, with an explanation, and you stay offline until you
+turn it back on. That is deliberate: nothing puts an expert back in the dispatch pool without them
+saying so.
+
 ### Fastest full loop
 
 Two browser profiles (or one normal window + one incognito) side by side: applicant in one, admin in
@@ -121,6 +141,9 @@ the other. Approve in the admin window, refresh the applicant's dashboard, and w
 | `pnpm db:studio`                | Prisma Studio — browse the data                                                           |
 | `pnpm grant-role <email> ADMIN` | Promote an existing user                                                                  |
 | `pnpm e2e:phase2`               | 41 HTTP checks against a running server                                                   |
+| `pnpm e2e:phase3`               | 27 HTTP checks — request intake, redaction, classification                                |
+| `pnpm e2e:phase4`               | 61 HTTP checks — availability, skills, the live presence sweep                            |
+| `pnpm e2e`                      | All three, in order                                                                       |
 | `pnpm pg:stop`                  | Stop the database                                                                         |
 
 ---

@@ -1,6 +1,7 @@
 import {
   AnthropicProblemClassifier,
   ConsoleLogger,
+  PrismaExpertAvailabilityRepository,
   PrismaPricingRepository,
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
@@ -10,6 +11,7 @@ import { parseServerEnv, type ServerEnv } from "@sfx/contracts";
 import { prisma } from "@sfx/db";
 import {
   ClassificationService,
+  ExpertAvailabilityService,
   systemClock,
   type Logger,
   type ProblemClassifier,
@@ -30,6 +32,12 @@ export interface WorkerContainer {
   readonly requests: SupportRequestRepository;
   readonly taxonomy: TaxonomyRepository;
   readonly classification: ClassificationService;
+  /**
+   * Built with no actor and never exposed over HTTP from here — the sweep is the
+   * system acting on itself. The web app builds its own instance for the
+   * expert-facing toggle and heartbeat.
+   */
+  readonly availability: ExpertAvailabilityService;
 }
 
 /**
@@ -90,6 +98,13 @@ export async function buildWorkerContainer(): Promise<WorkerContainer> {
       clock: systemClock,
       logger,
       timeoutMs: env.CLASSIFIER_TIMEOUT_MS,
+    }),
+    availability: new ExpertAvailabilityService({
+      availability: new PrismaExpertAvailabilityRepository(prisma),
+      clock: systemClock,
+      logger,
+      heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+      heartbeatIntervalSeconds: env.HEARTBEAT_INTERVAL_SECONDS,
     }),
   };
 }

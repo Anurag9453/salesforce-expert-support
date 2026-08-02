@@ -40,6 +40,25 @@ export type RequestState = z.infer<typeof requestStateSchema>;
 export const availabilityStatusSchema = z.enum(["OFFLINE", "AVAILABLE", "ON_OFFER", "IN_SESSION"]);
 export type AvailabilityStatus = z.infer<typeof availabilityStatusSchema>;
 
+/**
+ * Why an availability change happened.
+ *
+ * Lives here rather than in the domain because the ports need it and a port may
+ * not import a domain module — that would invert the dependency the whole
+ * layering rests on. It is also on the wire, in the expert's own availability
+ * history, so contracts is where it belongs regardless.
+ */
+export const availabilityChangeSourceSchema = z.enum([
+  "MANUAL_TOGGLE",
+  "HEARTBEAT_TIMEOUT",
+  "OFFER_LOCK",
+  "OFFER_RELEASED",
+  "SESSION_START",
+  "SESSION_END",
+  "ADMIN",
+]);
+export type AvailabilityChangeSource = z.infer<typeof availabilityChangeSourceSchema>;
+
 export const expertStatusSchema = z.enum([
   "DRAFT",
   "SUBMITTED",

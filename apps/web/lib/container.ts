@@ -7,6 +7,9 @@ import {
   MockPayoutProvider,
   PgBossScheduler,
   PrismaAttachmentRepository,
+  PrismaExpertAvailabilityRepository,
+  PrismaExpertProfileRepository,
+  PrismaExpertSkillRepository,
   PrismaPricingRepository,
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
@@ -20,6 +23,9 @@ import {
   AccountService,
   ExpertAdminService,
   ExpertApplicationService,
+  ExpertAvailabilityService,
+  ExpertProfileService,
+  ExpertSkillService,
   SupportRequestService,
   systemClock,
   type AttachmentRepository,
@@ -64,6 +70,9 @@ export interface Container {
   readonly accounts: AccountService;
   readonly expertApplications: ExpertApplicationService;
   readonly expertAdmin: ExpertAdminService;
+  readonly expertAvailability: ExpertAvailabilityService;
+  readonly expertSkills: ExpertSkillService;
+  readonly expertProfiles: ExpertProfileService;
   readonly supportRequests: SupportRequestService;
   /** Built lazily — it needs the taxonomy, which lives in the database. */
   buildClassifier(): Promise<ProblemClassifier>;
@@ -144,6 +153,26 @@ function build(): Container {
     accounts: new AccountService(uow),
     expertApplications: new ExpertApplicationService(uow, clock),
     expertAdmin: new ExpertAdminService(uow, clock),
+    expertAvailability: new ExpertAvailabilityService({
+      availability: new PrismaExpertAvailabilityRepository(prisma),
+      clock,
+      logger,
+      heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+      heartbeatIntervalSeconds: env.HEARTBEAT_INTERVAL_SECONDS,
+    }),
+    expertSkills: new ExpertSkillService({
+      skills: new PrismaExpertSkillRepository(prisma),
+      taxonomy,
+      applications: uow.expertApplications,
+      auditLog: uow.auditLog,
+      clock,
+    }),
+    expertProfiles: new ExpertProfileService({
+      profiles: new PrismaExpertProfileRepository(prisma),
+      applications: uow.expertApplications,
+      auditLog: uow.auditLog,
+      clock,
+    }),
     supportRequests: new SupportRequestService({
       requests,
       taxonomy,

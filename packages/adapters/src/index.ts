@@ -11,6 +11,7 @@ export * from "./payout/mock-payout-provider.js";
 export * from "./observability/console-logger.js";
 export * from "./persistence/prisma-repositories.js";
 export * from "./persistence/prisma-request-repositories.js";
+export * from "./persistence/prisma-expert-repositories.js";
 export * from "./classification/rules-classifier.js";
 export * from "./classification/anthropic-classifier.js";
 export * from "./storage/local-storage.js";

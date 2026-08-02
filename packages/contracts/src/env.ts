@@ -74,6 +74,18 @@ const baseServerEnv = z.object({
   /** `mock` keeps Phases 1–5 free of an API key. */
   CLASSIFIER_PROVIDER: z.enum(["anthropic", "mock"]).default("mock"),
 
+  // ── Phase 4: expert presence (§C4) ────────────────────────────────────────
+  /** How often the expert client pings. Served to the client, not hard-coded there. */
+  HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().int().positive().default(45),
+  /**
+   * How long presence survives without a ping.
+   *
+   * Configurable mainly so the sweep can be demonstrated in seconds rather than
+   * minutes during a walkthrough. The 180s default is chosen against browser
+   * background-tab throttling — see DEFAULT_HEARTBEAT_STALE_AFTER_SECONDS.
+   */
+  HEARTBEAT_STALE_AFTER_SECONDS: z.coerce.number().int().positive().default(180),
+
   // ── Phase 6: realtime ─────────────────────────────────────────────────────
   ABLY_API_KEY: z.string().min(1).optional(),
   REALTIME_PROVIDER: z.enum(["ably", "mock"]).default("mock"),
@@ -102,7 +114,18 @@ export const serverEnvSchema = pairedCredentials(
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "Google sign-in",
-);
+).superRefine((value, ctx) => {
+  // A ping slower than the timeout sweeps everyone who is genuinely present.
+  // Cheap to get wrong by editing one of the two, so it is checked at boot.
+  if (value.HEARTBEAT_INTERVAL_SECONDS >= value.HEARTBEAT_STALE_AFTER_SECONDS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["HEARTBEAT_INTERVAL_SECONDS"],
+      message:
+        "must be shorter than HEARTBEAT_STALE_AFTER_SECONDS, or every present expert is swept offline.",
+    });
+  }
+});
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
