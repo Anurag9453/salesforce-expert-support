@@ -17,7 +17,9 @@
   "dependencies": {
     "@sfx/contracts": "workspace:*",
     "@sfx/db": "workspace:*",
-    "@sfx/domain": "workspace:*"
+    "@sfx/domain": "workspace:*",
+    "@anthropic-ai/sdk": "^0.115.0",
+    "pg-boss": "^10.1.6"
   },
   "devDependencies": {
     "@sfx/config": "workspace:*",

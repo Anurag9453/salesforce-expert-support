@@ -27,8 +27,14 @@ export const PERMISSIONS = [
   "expert_application:submit_own",
   // Expert workspace, gated on an APPROVED application
   "expert_workspace:access",
+  // Support requests, from the customer side
+  "support_request:create",
+  "support_request:read_own",
+  "support_request:cancel_own",
+  "attachment:upload",
   // Administration
   "admin:read_experts",
+  "admin:read_requests",
   "admin:review_expert",
   "admin:suspend_expert",
   "admin:reinstate_expert",
@@ -58,6 +64,7 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
 
   switch (permission) {
     case "admin:read_experts":
+    case "admin:read_requests":
     case "admin:review_expert":
     case "admin:suspend_expert":
     case "admin:reinstate_expert":
@@ -66,6 +73,15 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
 
     case "account:read_self":
     case "account:update_self":
+      return true;
+
+    // Every account is a customer, so these need no role check beyond ACTIVE.
+    // An approved expert requesting help for themselves is a legitimate and
+    // expected use of the product, not an edge case to block.
+    case "support_request:create":
+    case "support_request:read_own":
+    case "support_request:cancel_own":
+    case "attachment:upload":
       return true;
 
     case "expert_application:start":

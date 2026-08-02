@@ -57,15 +57,18 @@ export interface ExpertApplicationDraft {
   readonly acceptConfidentiality?: boolean;
 }
 
+/** Who performed an action, for audit and state-history rows. */
+export type ActorType = "SYSTEM" | "CUSTOMER" | "EXPERT" | "ADMIN";
+
 /**
- * Requirement 3 — the audit record for an administrative decision.
+ * The audit record for an administrative decision.
  *
  * Who, when, and which transition. Written in the same transaction as the
  * status change, so an approval can never exist without its audit row.
  */
 export interface AuditEntry {
   readonly actorUserId: string | null;
-  readonly actorType: "SYSTEM" | "CUSTOMER" | "EXPERT" | "ADMIN";
+  readonly actorType: ActorType;
   readonly action: string;
   readonly entityType: string;
   readonly entityId: string;

@@ -33,6 +33,7 @@ export async function getActor(): Promise<MaybeActor> {
       email: true,
       roles: true,
       status: true,
+      customer: { select: { id: true } },
       expert: { select: { id: true, status: true } },
     },
   });
@@ -45,11 +46,23 @@ export async function getActor(): Promise<MaybeActor> {
   // on the first authenticated request of a new account.
   await accounts.ensureCustomerProfile(user.id);
 
+  // Re-read only when the bootstrap just created it, so the common path stays a
+  // single query.
+  const customerProfileId =
+    user.customer?.id ??
+    (
+      await prisma.customerProfile.findUnique({
+        where: { userId: user.id },
+        select: { id: true },
+      })
+    )?.id;
+
   return {
     userId: user.id,
     email: user.email,
     roles: user.roles,
     status: user.status,
+    ...(customerProfileId ? { customerProfileId } : {}),
     ...(user.expert ? { expert: { profileId: user.expert.id, status: user.expert.status } } : {}),
   };
 }

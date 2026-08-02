@@ -18,6 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const links: Array<{ href: string; label: string }> = [
     { href: "/dashboard", label: "Dashboard" },
+    { href: "/requests", label: "Requests" },
   ];
 
   // A dual-role account sees both. The customer side never disappears when

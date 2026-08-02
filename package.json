@@ -24,7 +24,12 @@
     "pg:reset": "node scripts/local-postgres.mjs reset",
     "verify": "node scripts/verify.mjs",
     "clean": "turbo run clean && rm -rf node_modules",
-    "e2e:phase2": "bash scripts/e2e/phase2-accounts.sh"
+    "e2e:phase2": "bash scripts/e2e/phase2-accounts.sh",
+    "db:setup": "pnpm --filter @sfx/db migrate:deploy && pnpm --filter @sfx/db seed",
+    "grant-role": "pnpm --filter @sfx/db grant-role",
+    "pg:status": "node scripts/local-postgres.mjs status",
+    "e2e:phase3": "bash scripts/e2e/phase3-requests.sh",
+    "e2e": "bash scripts/e2e/phase2-accounts.sh && bash scripts/e2e/phase3-requests.sh"
   },
   "devDependencies": {
     "@sfx/config": "workspace:*",

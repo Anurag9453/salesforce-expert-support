@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "//": "allow is broad so routine dev work does not prompt. `ask` and `deny` take precedence over `allow`, so the entries below still gate the things that are hard to undo or that reach outside this machine.",
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "TodoWrite(*)",
+      "WebFetch(*)",
+      "WebSearch(*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(gh:*)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Bash(npm i -g:*)",
+      "Bash(npm install -g:*)",
+      "Bash(pnpm add -g:*)",
+      "Bash(brew:*)",
+      "Bash(pnpm db:migrate:fresh)",
+      "Bash(pnpm pg:reset)",
+      "Bash(pnpm clean)",
+      "Bash(npm publish:*)",
+      "Bash(pnpm publish:*)",
+      "Bash(vercel:*)",
+      "Bash(railway:*)",
+      "Bash(docker:*)",
+      "Bash(kill -9:*)",
+      "Bash(pkill:*)",
+      "Bash(chmod 777:*)",
+      "Bash(curl:*//api.:*)",
+      "Bash(:*prisma migrate reset:*)",
+      "Bash(:*DROP DATABASE:*)",
+      "Bash(:*DROP TABLE:*)",
+      "Bash(:*TRUNCATE:*)",
+      "Bash(:*deleteMany:*)"
+    ],
+    "deny": ["Read(./.env)", "Read(./.env.*)", "Bash(cat .env)", "Bash(cat ./.env)"]
+  }
+}

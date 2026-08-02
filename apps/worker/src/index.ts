@@ -2,6 +2,12 @@ import { parseServerEnv } from "@sfx/contracts";
 import { ConsoleLogger } from "@sfx/adapters";
 import { prisma } from "@sfx/db";
 import PgBoss from "pg-boss";
+import { buildWorkerContainer } from "./container.js";
+import {
+  handleClassifyRequest,
+  sweepStuckClassifications,
+  type ClassifyRequestPayload,
+} from "./jobs/classify-request.js";
 import { QUEUES, RETRY_POLICY, type QueueName } from "./queues.js";
 
 /**
@@ -58,14 +64,38 @@ async function main(): Promise<void> {
   }
   logger.info("queues registered", { count: Object.keys(QUEUES).length });
 
+  await verifyDatabase();
+
   // Handlers are registered by their phase:
-  //   Phase 3 → CLASSIFY_REQUEST
+  //   Phase 3 → CLASSIFY_REQUEST                                    ← live
   //   Phase 4 → HEARTBEAT_SWEEP
   //   Phase 5 → DISPATCH_NEXT_OFFER, OFFER_TIMEOUT, MATCHING_DEADLINE
   //   Phase 6 → NOTIFICATION_DISPATCH
-  // Until then the worker boots, holds its queues, and idles.
+  const container = await buildWorkerContainer();
 
-  await verifyDatabase();
+  await boss.work<ClassifyRequestPayload>(
+    QUEUES.CLASSIFY_REQUEST,
+    { batchSize: 1 },
+    async (jobs) => {
+      for (const job of jobs) {
+        await handleClassifyRequest(container, job.data);
+      }
+    },
+  );
+  logger.info("handler registered", { queue: QUEUES.CLASSIFY_REQUEST });
+
+  // Recovery janitor, not a dispatch mechanism. Catches requests stranded in
+  // CLASSIFYING if an enqueue is ever lost — a stuck request is invisible to
+  // the customer and never resolves on its own.
+  const sweepTimer = setInterval(() => {
+    void sweepStuckClassifications(container).catch((error: unknown) => {
+      logger.error("classification sweep failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, 30_000);
+  sweepTimer.unref();
+
   logger.info("worker ready");
 
   let shuttingDown = false;

@@ -1,8 +1,18 @@
 import {
+  AnthropicProblemClassifier,
   ConsoleLogger,
+  InMemoryRateLimiter,
+  LocalFileStorage,
   MockPaymentGateway,
   MockPayoutProvider,
+  PgBossScheduler,
+  PrismaAttachmentRepository,
+  PrismaPricingRepository,
+  PrismaSupportRequestRepository,
+  PrismaTaxonomyRepository,
   PrismaUnitOfWork,
+  RulesProblemClassifier,
+  SendOnlyBoss,
 } from "@sfx/adapters";
 import { prisma } from "@sfx/db";
 import type { PrismaClient } from "@sfx/db";
@@ -10,13 +20,23 @@ import {
   AccountService,
   ExpertAdminService,
   ExpertApplicationService,
+  SupportRequestService,
   systemClock,
+  type AttachmentRepository,
   type Clock,
+  type JobScheduler,
   type Logger,
   type PaymentGateway,
   type PayoutProvider,
+  type PricingRepository,
+  type ProblemClassifier,
+  type RateLimiter,
+  type SupportRequestRepository,
+  type TaxonomyRepository,
   type UnitOfWork,
 } from "@sfx/domain";
+import { join } from "node:path";
+import { QUEUES } from "./queues.js";
 import { serverEnv } from "./env.js";
 
 /**
@@ -34,9 +54,19 @@ export interface Container {
   readonly uow: UnitOfWork;
   readonly paymentGateway: PaymentGateway;
   readonly payoutProvider: PayoutProvider;
+  readonly rateLimiter: RateLimiter;
+  readonly storage: LocalFileStorage;
+  readonly scheduler: JobScheduler;
+  readonly requests: SupportRequestRepository;
+  readonly taxonomy: TaxonomyRepository;
+  readonly pricing: PricingRepository;
+  readonly attachments: AttachmentRepository;
   readonly accounts: AccountService;
   readonly expertApplications: ExpertApplicationService;
   readonly expertAdmin: ExpertAdminService;
+  readonly supportRequests: SupportRequestService;
+  /** Built lazily — it needs the taxonomy, which lives in the database. */
+  buildClassifier(): Promise<ProblemClassifier>;
 }
 
 let cached: Container | undefined;
@@ -71,6 +101,32 @@ function build(): Container {
     }
   })();
 
+  // ⚠️ Per-process. Must be replaced with a shared store before public
+  // deployment — see ARCHITECTURE.md → Pre-deployment gates.
+  const rateLimiter = new InMemoryRateLimiter();
+
+  const storage = new LocalFileStorage({
+    rootDir: join(process.cwd(), ".storage"),
+    // Distinct from the auth secret's other uses, so a leaked download URL
+    // cannot be replayed as anything else.
+    signingSecret: `${env.BETTER_AUTH_SECRET}:storage`,
+    baseUrl: env.BETTER_AUTH_URL,
+  });
+
+  // Send-only: the web app enqueues work but must never execute it (D2).
+  const scheduler = new PgBossScheduler(
+    new SendOnlyBoss({
+      connectionString: env.DIRECT_DATABASE_URL ?? env.DATABASE_URL,
+      logger,
+    }),
+    logger,
+  );
+
+  const requests = new PrismaSupportRequestRepository(prisma);
+  const taxonomy = new PrismaTaxonomyRepository(prisma);
+  const pricing = new PrismaPricingRepository(prisma);
+  const attachments = new PrismaAttachmentRepository(prisma);
+
   return {
     prisma,
     clock,
@@ -78,9 +134,45 @@ function build(): Container {
     uow,
     paymentGateway,
     payoutProvider,
+    rateLimiter,
+    storage,
+    scheduler,
+    requests,
+    taxonomy,
+    pricing,
+    attachments,
     accounts: new AccountService(uow),
     expertApplications: new ExpertApplicationService(uow, clock),
     expertAdmin: new ExpertAdminService(uow, clock),
+    supportRequests: new SupportRequestService({
+      requests,
+      taxonomy,
+      pricing,
+      attachments,
+      payments: paymentGateway,
+      scheduler,
+      clock,
+      matchingWindowMinutes: 15,
+      classifyQueue: QUEUES.CLASSIFY_REQUEST,
+    }),
+    async buildClassifier() {
+      if (env.CLASSIFIER_PROVIDER === "anthropic" && env.ANTHROPIC_API_KEY) {
+        return new AnthropicProblemClassifier({
+          apiKey: env.ANTHROPIC_API_KEY,
+          model: env.CLASSIFIER_MODEL,
+          logger,
+        });
+      }
+      const skills = await taxonomy.listActiveSkills();
+      return new RulesProblemClassifier({
+        vocabulary: new Map(
+          skills.map((skill) => [
+            skill.slug,
+            { name: skill.name, aliases: skill.aliases, categorySlug: skill.categorySlug },
+          ]),
+        ),
+      });
+    },
   };
 }
 

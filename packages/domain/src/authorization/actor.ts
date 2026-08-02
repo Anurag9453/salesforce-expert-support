@@ -12,6 +12,12 @@ export interface Actor {
   readonly email: string;
   readonly roles: readonly UserRole[];
   readonly status: "ACTIVE" | "SUSPENDED" | "DELETED";
+  /**
+   * Every account has one — it is bootstrapped on the first authenticated
+   * request. Optional in the type only because the session builder constructs
+   * the Actor before it can guarantee the row exists.
+   */
+  readonly customerProfileId?: string;
   /** Present only when the user has started an expert application. */
   readonly expert?: {
     readonly profileId: string;

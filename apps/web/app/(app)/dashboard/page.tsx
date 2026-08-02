@@ -3,7 +3,6 @@ import Link from "next/link";
 import { can, isEligibleForMatching } from "@sfx/domain";
 import {
   Badge,
-  Button,
   buttonClasses,
   Card,
   CardBody,
@@ -11,22 +10,41 @@ import {
   CardTitle,
   ExpertStatusBadge,
 } from "@/components/ui";
+import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
+const ACTIVE_COPY: Record<string, string> = {
+  CREATED: "Just received",
+  CLASSIFYING: "Reading your problem",
+  SEARCHING: "Finding the right expert…",
+  OFFERED: "Expert found — waiting for them to accept",
+  ACCEPTED: "Expert found",
+  READY: "Your session is ready",
+  IN_SESSION: "Session in progress",
+};
+
 /**
- * Customer dashboard.
+ * Customer dashboard (§6).
  *
- * Deliberately thin: "Request Expert Help", active requests and session history
- * are Phase 3. What Phase 2 owns is the account itself and the route into
- * becoming an expert.
+ * "Get Expert Help" is the single most prominent thing on the page, per §6, and
+ * it becomes the live request card the moment one exists — a customer with a
+ * request in flight wants its status, not an invitation to raise another.
  */
 export default async function DashboardPage() {
   const actor = await requireActor();
+  const { supportRequests } = getContainer();
+
+  const [active, recent] = await Promise.all([
+    supportRequests.findActive(actor),
+    supportRequests.listForCustomer(actor, { limit: 5 }),
+  ]);
+
   const expert = actor.expert;
   const hasWorkspace = can(actor, "expert_workspace:access");
+  const history = recent.items.filter((request) => request.id !== active?.id);
 
   return (
     <div className="space-y-8">
@@ -41,16 +59,68 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {active ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Request in progress</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            <p className="text-sm font-medium text-ink">{active.title}</p>
+            <p className="text-sm text-ink-muted">
+              {ACTIVE_COPY[active.state] ?? active.state.replace(/_/g, " ").toLowerCase()}
+            </p>
+            <Link href={`/request/${active.id}`} className={buttonClasses({ size: "md" })}>
+              View request
+            </Link>
+          </CardBody>
+        </Card>
+      ) : (
         <Card>
           <CardHeader>
             <CardTitle>Get Salesforce help</CardTitle>
           </CardHeader>
           <CardBody className="space-y-3">
             <p className="text-sm text-ink-muted">
-              Describe your problem and we match you with an expert. Ships in Phase 3.
+              Describe your problem in your own words. We&rsquo;ll match you with an expert who has
+              the right depth, usually within 15 minutes.
             </p>
-            <Button disabled>Get Expert Help</Button>
+            <Link href="/request-help" className={buttonClasses({ size: "lg" })}>
+              Get Expert Help
+            </Link>
+          </CardBody>
+        </Card>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent requests</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-2.5">
+            {history.length === 0 ? (
+              <p className="text-sm text-ink-muted">Nothing yet.</p>
+            ) : (
+              <>
+                <ul className="space-y-2">
+                  {history.slice(0, 4).map((request) => (
+                    <li key={request.id}>
+                      <Link
+                        href={`/request/${request.id}`}
+                        className="flex items-center gap-2 text-sm hover:underline"
+                      >
+                        <span className="truncate text-ink">{request.title}</span>
+                        <span className="ml-auto shrink-0 text-xs text-ink-subtle">
+                          {request.state.replace(/_/g, " ").toLowerCase()}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/requests" className="inline-block text-xs text-accent hover:underline">
+                  See all
+                </Link>
+              </>
+            )}
           </CardBody>
         </Card>
 
@@ -64,8 +134,8 @@ export default async function DashboardPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <ExpertStatusBadge status={expert.status} />
                   {/*
-                    Requirement 2, said out loud in the UI: the server computed
-                    this from the application status, not from holding the role.
+                    Requirement 2, said out loud: the server computed this from
+                    the application status, not from holding the role.
                   */}
                   <span className="text-xs text-ink-subtle">
                     {isEligibleForMatching(expert.status)
@@ -75,7 +145,7 @@ export default async function DashboardPage() {
                 </div>
                 <Link
                   href={hasWorkspace ? "/expert" : "/expert-application"}
-                  className={buttonClasses({ variant: "secondary" })}
+                  className={buttonClasses({ variant: "secondary", size: "sm" })}
                 >
                   {hasWorkspace ? "Expert workspace" : "View application"}
                 </Link>
@@ -87,7 +157,7 @@ export default async function DashboardPage() {
                 </p>
                 <Link
                   href="/expert-application"
-                  className={buttonClasses({ variant: "secondary" })}
+                  className={buttonClasses({ variant: "secondary", size: "sm" })}
                 >
                   Become an Expert
                 </Link>

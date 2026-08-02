@@ -35,12 +35,19 @@ export default tseslint.config(
       "@typescript-eslint/no-non-null-assertion": "warn",
 
       // Money is integer minor units everywhere (§3). Floats are a correctness bug.
+      //
+      // Targets the specific mistake — rounding a value divided by 100, i.e.
+      // converting minor units to major and losing the remainder — rather than
+      // every `Math.round`. Byte formatting (/1024) and durations (/1000) are
+      // legitimate and must not be flagged, or the rule gets disabled wholesale
+      // and stops protecting anything.
       "no-restricted-syntax": [
         "error",
         {
-          selector: "CallExpression[callee.object.name='Math'][callee.property.name='round']",
+          selector:
+            "CallExpression[callee.object.name='Math'][callee.property.name=/^(round|floor|ceil)$/] > BinaryExpression[operator='/'][right.value=100]",
           message:
-            "Math.round on money is a rounding bug. Use the Money helpers in @sfx/domain/shared/money.",
+            "Rounding a minor-unit amount to major units loses the remainder. Use the Money helpers in @sfx/domain/shared/money, or Intl.NumberFormat for display.",
         },
       ],
 

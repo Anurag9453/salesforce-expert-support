@@ -625,6 +625,32 @@ Named regression tests, committed as specifications rather than examples: **the 
 
 ---
 
+## 9a. Pre-deployment gates
+
+Things that are correct for local development and **wrong in production**. Each is wired now, at
+the right call sites, so the fix is a swap in the composition root rather than an audit of every
+route. None of these may ship to a public URL unresolved.
+
+| #      | Gate                                | Current state                                                                                               | What must change                                                                                                                                                    | Added   |
+| ------ | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **G1** | **Rate limiting on a shared store** | `InMemoryRateLimiter` — per-process fixed window. Applied to auth, request creation, and attachment upload. | Back `RateLimiter` with Redis/Upstash. The in-memory limiter is per-instance: with N instances an attacker gets N× the limit, and every deploy resets the counters. | Phase 3 |
+| **G2** | **Object storage**                  | `LocalFileStorage` — signed URLs, path containment, private reads, but files on the app server's disk.      | Swap for the R2/S3 adapter. Local disk does not survive a redeploy and does not exist on serverless.                                                                | Phase 3 |
+| **G3** | **Content Security Policy**         | Other security headers are live; CSP is not.                                                                | Add CSP once the provider origins (Ably, Daily, the payment gateway) are known.                                                                                     | Phase 1 |
+| **G4** | **Error reporting**                 | Not wired.                                                                                                  | Sentry, once a DSN exists.                                                                                                                                          | Phase 1 |
+| **G5** | **`embedded-postgres`**             | Pinned dev-only dependency, beta-tagged.                                                                    | Managed Postgres (Neon) in every deployed environment. Never ships.                                                                                                 | Phase 1 |
+
+**G1 in detail.** Rate limiting was originally scheduled for Phase 11 hardening. That was wrong:
+sign-up, sign-in, and request submission are live routes from Phases 2 and 3, and request submission
+authorizes a payment on every call. The limits and their call sites exist now
+(`RATE_LIMITS` in `packages/domain/src/ports/rate-limiter.ts`); only the backing store is
+outstanding.
+
+One caveat that comes with it: the unauthenticated limit keys on `x-forwarded-for`, which is
+trustworthy on Vercel and spoofable on a platform that does not strip inbound copies. Verify that
+property for whichever platform is chosen.
+
+---
+
 ## 10. Remaining open questions
 
 Down from fourteen to five. **Q2 and Q3 block Phase 7; nothing blocks Phase 1.**
