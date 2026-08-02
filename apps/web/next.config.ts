@@ -1,0 +1,41 @@
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
+  reactStrictMode: true,
+  // Workspace packages ship TypeScript source, not build output. One less build
+  // step, and `go to definition` lands on the real file.
+  transpilePackages: ["@sfx/domain", "@sfx/contracts", "@sfx/db", "@sfx/adapters"],
+  // Prisma ships native query engines; bundling it into the server runtime
+  // breaks them. Top-level in Next 15 (it left `experimental` in this release).
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
+  webpack(config) {
+    // The workspace packages write `./thing.js` in relative imports — the
+    // portable ESM convention, and what plain Node would need. Webpack does not
+    // map that back to the `.ts` source on its own, so teach it to.
+    // Without this the whole monorepo would have to drop extensions, which
+    // would silently break if we ever emit real ESM.
+    config.resolve.extensionAlias = {
+      ".js": [".ts", ".tsx", ".js"],
+      ".jsx": [".tsx", ".jsx"],
+      ".mjs": [".mts", ".mjs"],
+    };
+    return config;
+  },
+  async headers() {
+    // §30 — secure headers. CSP arrives in Phase 11 once the provider
+    // origins (Ably, Daily, the payment gateway) are actually known.
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=()" },
+        ],
+      },
+    ];
+  },
+};
+
+export default config;

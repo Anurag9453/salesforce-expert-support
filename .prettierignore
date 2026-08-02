@@ -1,0 +1,10 @@
+pnpm-lock.yaml
+.pgdata/
+.postgres/
+.next/
+.turbo/
+dist/
+coverage/
+node_modules/
+packages/db/prisma/migrations/
+next-env.d.ts

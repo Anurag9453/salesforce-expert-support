@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI uses a real Postgres service container. Local dev uses embedded-postgres
+  # (no Docker needed); both run the same migrations against a fresh database.
+  DATABASE_URL: postgresql://sfx:sfx@localhost:5432/sfx_test
+  DIRECT_DATABASE_URL: postgresql://sfx:sfx@localhost:5432/sfx_test
+  BETTER_AUTH_SECRET: ci-only-secret-value-at-least-32-chars-long
+  BETTER_AUTH_URL: http://localhost:3000
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sfx
+          POSTGRES_PASSWORD: sfx
+          POSTGRES_DB: sfx_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Write .env
+        # scripts/*/dotenv-cli read a real file; env vars alone are not enough.
+        run: |
+          {
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "DIRECT_DATABASE_URL=$DIRECT_DATABASE_URL"
+            echo "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET"
+            echo "BETTER_AUTH_URL=$BETTER_AUTH_URL"
+            echo "NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
+          } > .env
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Verify
+        run: pnpm verify

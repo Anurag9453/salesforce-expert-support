@@ -1,0 +1,929 @@
+// Salesforce Instant Expert Support — V1 schema
+// Mirrors ARCHITECTURE.md §3. Build tiers are annotated per model:
+//
+//   TIER 1 — schema + services + UI.
+//   TIER 2 — schema + insert-on-write only. No reads, no services, no UI.
+//            Kept because the history is unbackfillable, not because V1 uses it.
+//   TIER 3 — not created in V1 (absent from this file by definition).
+//
+// Conventions:
+//   * cuid() primary keys, createdAt/updatedAt everywhere.
+//   * Money is ALWAYS integer minor units (paise/cents) + ISO-4217 currency.
+//     There is no Float or Decimal on any monetary column, by design.
+//   * Enums over booleans for anything with a lifecycle (§16).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Enums
+// ────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  EXPERT
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum ExpertStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum AvailabilityStatus {
+  OFFLINE
+  AVAILABLE
+  ON_OFFER
+  IN_SESSION
+}
+
+/// Why an availability transition happened. HEARTBEAT_TIMEOUT is sticky:
+/// a swept expert stays OFFLINE until they explicitly mark themselves
+/// available again (never auto-restored).
+enum AvailabilityChangeSource {
+  MANUAL_TOGGLE
+  HEARTBEAT_TIMEOUT
+  OFFER_LOCK
+  OFFER_RELEASED
+  SESSION_START
+  SESSION_END
+  ADMIN
+}
+
+enum ProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum Urgency {
+  INSTANT
+  SCHEDULED // reserved; not reachable in V1
+}
+
+/// §16 / §4. PAYMENT_PENDING is retained but unreachable in V1: payment is
+/// authorized before matching (D1), so ACCEPTED goes straight to READY.
+/// It exists as the fallback path if a future gateway cannot authorize-then-capture.
+enum RequestState {
+  CREATED
+  CLASSIFYING
+  SEARCHING
+  OFFERED
+  ACCEPTED
+  PAYMENT_PENDING
+  READY
+  IN_SESSION
+  COMPLETED
+  CANCELLED
+  NO_EXPERT_FOUND
+  DISPUTED
+  REFUNDED
+}
+
+enum ActorType {
+  SYSTEM
+  CUSTOMER
+  EXPERT
+  ADMIN
+}
+
+enum SkillSource {
+  CUSTOMER_SELECTED
+  AI_DETECTED
+}
+
+/// ALGORITHMIC — produced by the scoring engine.
+/// ADMIN_ASSIGN — operator picked the expert; eligibility filters still applied.
+/// ADMIN_FORCE_ASSIGN — operator picked the expert, filters bypassed, reason required.
+/// Neither admin path ever writes ACCEPTED on the expert's behalf; both create
+/// an offer the expert must accept.
+enum AttemptOrigin {
+  ALGORITHMIC
+  ADMIN_ASSIGN
+  ADMIN_FORCE_ASSIGN
+}
+
+enum AttemptStatus {
+  RANKED
+  OFFERED
+  ACCEPTED
+  DECLINED
+  TIMED_OUT
+  SUPERSEDED
+  WITHDRAWN
+}
+
+enum SessionState {
+  SCHEDULED
+  READY
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum ParticipantEventType {
+  JOINED
+  LEFT
+  RECONNECTED
+}
+
+enum ResolutionStatus {
+  RESOLVED
+  PARTIALLY_RESOLVED
+  NOT_RESOLVED
+}
+
+enum PaymentStatus {
+  REQUIRES_METHOD
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum LedgerEntryType {
+  SESSION_EARNING
+  ADJUSTMENT
+  REFUND_CLAWBACK
+  PAYOUT
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.1 Identity — TIER 1
+// Auth models follow Better Auth's expected shape. `AuthSession` is deliberately
+// named to avoid collision with SupportSession; mapped via Better Auth config.
+// ────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String     @id @default(cuid())
+  /// Stored lowercased by the auth layer; compared case-sensitively here.
+  email         String     @unique
+  emailVerified Boolean    @default(false)
+  name          String
+  image         String?
+  roles         UserRole[] @default([CUSTOMER])
+  status        UserStatus @default(ACTIVE)
+
+  suspendedAt     DateTime?
+  suspendedReason String?
+  lastLoginAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts     Account[]
+  authSessions AuthSession[]
+  customer     CustomerProfile?
+  expert       ExpertProfile?
+
+  reviewedExperts    ExpertProfile[]             @relation("ExpertReviewedBy")
+  verifiedSkills     ExpertSkill[]               @relation("SkillVerifiedBy")
+  stateChanges       SupportRequestStateHistory[]
+  uploadedAttachments Attachment[]
+  cancelledRequests  SupportRequest[]            @relation("RequestCancelledBy")
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  ratingsGiven       Rating[]                    @relation("RatingAuthor")
+  participantEvents  SessionParticipantEvent[]
+  initiatedRefunds   Refund[]                    @relation("RefundInitiatedBy")
+  availabilityChanges ExpertAvailabilityLog[]    @relation("AvailabilityChangedBy")
+
+  @@index([status])
+  @@map("users")
+}
+
+model Account {
+  id         String @id @default(cuid())
+  userId     String
+  accountId  String
+  providerId String
+
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  /// Hashed. Null for OAuth accounts.
+  password              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+model CustomerProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  companyName        String?
+  timezone           String   @default("Asia/Kolkata")
+  preferredLanguages String[] @default(["en"])
+
+  /// Provider-neutral customer reference (§C2). NOT stripeCustomerId — the
+  /// gateway is undecided until Phase 7a.
+  paymentCustomerRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requests SupportRequest[]
+  sessions SupportSession[]
+
+  @@map("customer_profiles")
+}
+
+model ExpertProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  status          ExpertStatus @default(DRAFT)
+  statusChangedAt DateTime     @default(now())
+  reviewedByUserId String?
+  reviewNotes     String?
+
+  country             String
+  timezone            String
+  yearsExperience     Int
+  professionalSummary String
+
+  /// Denormalised in V1 (§C6). Join tables were Tier 3 — language is a soft
+  /// matching signal and certifications are read by a human reviewer.
+  languages      String[] @default(["en"])
+  certifications String[] @default([])
+
+  linkedinUrl      String?
+  githubUrl        String?
+  employmentStatus String?
+
+  termsAcceptedAt            DateTime?
+  confidentialityAcceptedAt  DateTime?
+
+  // ── Presence (§C4) ────────────────────────────────────────────────────────
+  availabilityStatus AvailabilityStatus @default(OFFLINE)
+  /// Dashboard pings every 45s while AVAILABLE. Eligibility requires this to be
+  /// within `heartbeatStaleAfter` (default 3 min). A swept expert stays OFFLINE
+  /// until they explicitly re-toggle — never auto-restored.
+  lastHeartbeatAt        DateTime?
+  lastAvailableAt        DateTime?
+  lastAssignedAt         DateTime?
+  lastSessionCompletedAt DateTime?
+
+  // ── Metrics, recomputed on session completion ─────────────────────────────
+  sessionsCompleted  Int @default(0)
+  ratingSum          Int @default(0)
+  ratingCount        Int @default(0)
+  /// Offers to experts swept offline are NOT counted here — a presence problem
+  /// must not damage someone's reliability score.
+  offersReceived     Int @default(0)
+  offersAccepted     Int @default(0)
+  avgResponseSeconds Int?
+
+  /// Provider-neutral (§C2). Populated in Phase 7b.
+  payoutRecipientRef String?
+  payoutsEnabled     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ExpertReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  skills            ExpertSkill[]
+  assignedRequests  SupportRequest[]        @relation("RequestAssignedExpert")
+  matchingAttempts  MatchingAttempt[]
+  sessions          SupportSession[]
+  availabilityLog   ExpertAvailabilityLog[]
+  ledgerEntries     EarningsLedgerEntry[]
+  ratingsReceived   Rating[]                @relation("RatingSubject")
+
+  @@index([status, availabilityStatus])
+  @@index([availabilityStatus, lastHeartbeatAt])
+  @@map("expert_profiles")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.2 Taxonomy — TIER 1
+// Adding a cloud/product is INSERTing rows, never a migration (§2).
+// ────────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id           String  @id @default(cuid())
+  slug         String  @unique
+  name         String
+  description  String?
+  parentId     String?
+  displayOrder Int     @default(0)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?        @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[]       @relation("CategoryTree")
+  skills   Skill[]
+  requests SupportRequest[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Skill {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  categoryId  String
+  /// Feeds the classifier prompt so "LWC" resolves to "Lightning Web Components".
+  aliases     String[] @default([])
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category     Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  expertSkills ExpertSkill[]
+  requestLinks SupportRequestSkill[]
+
+  @@index([categoryId])
+  @@map("skills")
+}
+
+model ExpertSkill {
+  id              String           @id @default(cuid())
+  expertProfileId String
+  skillId         String
+  proficiencyLevel ProficiencyLevel
+  yearsExperience Int              @default(0)
+  verified        Boolean          @default(false)
+  verifiedByUserId String?
+  verifiedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expert     ExpertProfile @relation(fields: [expertProfileId], references: [id], onDelete: Cascade)
+  skill      Skill         @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  verifiedBy User?         @relation("SkillVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([expertProfileId, skillId])
+  @@index([skillId, proficiencyLevel])
+  @@map("expert_skills")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.3 Support requests — TIER 1
+// ────────────────────────────────────────────────────────────────────────────
+
+model SupportRequest {
+  id         String @id @default(cuid())
+  customerId String
+
+  title       String
+  description String
+  urgency     Urgency @default(INSTANT)
+
+  state           RequestState @default(CREATED)
+  stateEnteredAt  DateTime     @default(now())
+  /// Optimistic concurrency guard; bumped by every transition().
+  version         Int          @default(0)
+
+  primaryCategoryId String?
+  difficulty        Difficulty?
+
+  // ── Classification telemetry (§C1) ────────────────────────────────────────
+  aiConfidence    Float?
+  aiClassifiedAt  DateTime?
+  /// Recorded per request so the promotion evaluation can compare like for like.
+  aiModel         String?
+  aiFailureReason String?
+
+  matchDeadlineAt  DateTime
+  assignedExpertId String?
+
+  // ── Price snapshot, frozen at creation (§21) ──────────────────────────────
+  pricingTierId          String
+  quotedPriceCents       Int
+  currency               String @default("INR")
+  quotedPlatformFeeCents Int
+  quotedExpertPayoutCents Int
+
+  /// Provider-neutral authorization handle (§C2).
+  paymentAuthorizationRef String?
+
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer        CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  primaryCategory Category?       @relation(fields: [primaryCategoryId], references: [id], onDelete: SetNull)
+  assignedExpert  ExpertProfile?  @relation("RequestAssignedExpert", fields: [assignedExpertId], references: [id], onDelete: SetNull)
+  pricingTier     PricingTier     @relation(fields: [pricingTierId], references: [id], onDelete: Restrict)
+  cancelledBy     User?           @relation("RequestCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+
+  skills           SupportRequestSkill[]
+  stateHistory     SupportRequestStateHistory[]
+  attachments      Attachment[]
+  matchingRuns     MatchingRun[]
+  matchingAttempts MatchingAttempt[]
+  session          SupportSession?
+  payment          Payment?
+
+  @@index([customerId, createdAt])
+  @@index([state, matchDeadlineAt])
+  @@index([assignedExpertId])
+  @@map("support_requests")
+}
+
+model SupportRequestSkill {
+  id               String      @id @default(cuid())
+  supportRequestId String
+  skillId          String
+  source           SkillSource
+  /// Drives the hard primary-skill competence filter (§C3), not just weighting.
+  isPrimary        Boolean     @default(false)
+  confidence       Float?
+
+  createdAt DateTime @default(now())
+
+  request SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  skill   Skill          @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@unique([supportRequestId, skillId, source])
+  @@index([skillId])
+  @@map("support_request_skills")
+}
+
+model SupportRequestStateHistory {
+  id               String        @id @default(cuid())
+  supportRequestId String
+  fromState        RequestState?
+  toState          RequestState
+  reason           String?
+  actorType        ActorType
+  actorUserId      String?
+  metadata         Json          @default("{}")
+
+  createdAt DateTime @default(now())
+
+  request SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  actor   User?          @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([supportRequestId, createdAt])
+  @@map("support_request_state_history")
+}
+
+model Attachment {
+  id               String  @id @default(cuid())
+  supportRequestId String?
+  uploadedByUserId String
+
+  /// Object key only. Never exposed; downloads go through a signed-URL endpoint
+  /// that performs a server-side authorization check first (§30).
+  storageKey       String  @unique
+  filename         String
+  contentType      String
+  sizeBytes        Int
+  redactionApplied Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  request    SupportRequest? @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  uploadedBy User            @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([supportRequestId])
+  @@map("attachments")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.4 Matching & audit — TIER 1
+// This is the IP (§37.5) and the thing that answers "why B and not A" (§26).
+// ────────────────────────────────────────────────────────────────────────────
+
+model MatchingRun {
+  id               String @id @default(cuid())
+  supportRequestId String
+  roundNumber      Int
+  relaxationLevel  Int    @default(0)
+
+  /// §C7 — weights snapshot onto the run itself rather than a separate versioned
+  /// table. An attempt is self-explaining without a join, and a later weight
+  /// change can never retroactively rewrite the reasoning behind an old decision.
+  weightsSnapshot    Json
+  thresholdsSnapshot Json
+
+  candidatePoolSize Int
+  filtersApplied    Json      @default("{}")
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  request  SupportRequest    @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  attempts MatchingAttempt[]
+
+  @@unique([supportRequestId, roundNumber])
+  @@index([supportRequestId])
+  @@map("matching_runs")
+}
+
+model MatchingAttempt {
+  id               String        @id @default(cuid())
+  matchingRunId    String
+  supportRequestId String
+  expertProfileId  String
+
+  origin AttemptOrigin @default(ALGORITHMIC)
+  /// Null for admin-assigned attempts — they bypass scoring by definition.
+  rank   Int?
+
+  skillScore       Float @default(0)
+  experienceScore  Float @default(0)
+  ratingScore      Float @default(0)
+  fairnessScore    Float @default(0)
+  reliabilityScore Float @default(0)
+  finalScore       Float @default(0)
+  /// Per-skill detail for the admin drill-down.
+  scoreBreakdown   Json  @default("{}")
+
+  status AttemptStatus @default(RANKED)
+
+  offeredAt       DateTime?
+  respondedAt     DateTime?
+  responseSeconds Int?
+  declineReason   String?
+  /// Required for ADMIN_FORCE_ASSIGN; enforced in the domain layer.
+  adminReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  run     MatchingRun    @relation(fields: [matchingRunId], references: [id], onDelete: Cascade)
+  request SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  expert  ExpertProfile  @relation(fields: [expertProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([matchingRunId, expertProfileId])
+  @@index([supportRequestId, rank])
+  @@index([expertProfileId, status])
+  @@map("matching_attempts")
+}
+
+/// TIER 2 — insert-on-write only. No reads, no services, no UI in V1.
+/// Kept because "was this expert actually online?" cannot be reconstructed later,
+/// and it is the evidence base for any dispute about acceptance-rate metrics.
+model ExpertAvailabilityLog {
+  id              String                   @id @default(cuid())
+  expertProfileId String
+  fromStatus      AvailabilityStatus?
+  toStatus        AvailabilityStatus
+  source          AvailabilityChangeSource
+  changedByUserId String?
+
+  createdAt DateTime @default(now())
+
+  expert    ExpertProfile @relation(fields: [expertProfileId], references: [id], onDelete: Cascade)
+  changedBy User?         @relation("AvailabilityChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([expertProfileId, createdAt])
+  @@map("expert_availability_log")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.5 Sessions — TIER 1, built in Phase 8
+// ────────────────────────────────────────────────────────────────────────────
+
+model SupportSession {
+  id               String @id @default(cuid())
+  supportRequestId String @unique
+  customerId       String
+  expertId         String
+
+  state SessionState @default(SCHEDULED)
+
+  videoProvider      String?
+  videoRoomId        String?
+  videoRoomExpiresAt DateTime?
+
+  scheduledDurationMinutes Int
+  startedAt                DateTime?
+  endedAt                  DateTime?
+
+  priceCents       Int
+  platformFeeCents Int
+  expertPayoutCents Int
+  currency         String @default("INR")
+
+  resolutionStatus ResolutionStatus?
+  /// Private by default (§22). Never returned to the customer unless the flag is set.
+  expertNotes                   String?
+  expertNotesSharedWithCustomer Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request  SupportRequest  @relation(fields: [supportRequestId], references: [id], onDelete: Restrict)
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  expert   ExpertProfile   @relation(fields: [expertId], references: [id], onDelete: Restrict)
+
+  participantEvents SessionParticipantEvent[]
+  rating            Rating?
+
+  @@index([customerId, createdAt])
+  @@index([expertId, createdAt])
+  @@map("support_sessions")
+}
+
+/// Payment capture is gated on real participation, not on self-report.
+model SessionParticipantEvent {
+  id        String               @id @default(cuid())
+  sessionId String
+  userId    String
+  eventType ParticipantEventType
+  occurredAt DateTime            @default(now())
+
+  session SupportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId, occurredAt])
+  @@map("session_participant_events")
+}
+
+model Rating {
+  id            String  @id @default(cuid())
+  sessionId     String  @unique
+  raterUserId   String
+  ratedExpertId String
+  stars         Int
+  review        String?
+  isPublic      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  session SupportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rater   User           @relation("RatingAuthor", fields: [raterUserId], references: [id], onDelete: Restrict)
+  expert  ExpertProfile  @relation("RatingSubject", fields: [ratedExpertId], references: [id], onDelete: Cascade)
+
+  @@index([ratedExpertId, createdAt])
+  @@map("ratings")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.6 Money
+// ────────────────────────────────────────────────────────────────────────────
+
+model PricingTier {
+  id                 String  @id @default(cuid())
+  name               String
+  durationMinutes    Int
+  priceCents         Int
+  currency           String  @default("INR")
+  /// Basis points (2000 = 20.00%) — integer, so the platform cut can never
+  /// acquire a floating-point rounding error.
+  platformFeeBps     Int
+  isActive           Boolean @default(true)
+  effectiveFrom      DateTime @default(now())
+  effectiveTo        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requests SupportRequest[]
+
+  @@index([isActive, effectiveFrom])
+  @@map("pricing_tiers")
+}
+
+model Payment {
+  id               String @id @default(cuid())
+  supportRequestId String @unique
+  customerId       String
+
+  /// e.g. "mock" | "razorpay" | "stripe" — undecided until Phase 7a (§C2).
+  provider    String
+  providerRef String @unique
+
+  amountCents Int
+  currency    String        @default("INR")
+  status      PaymentStatus @default(REQUIRES_METHOD)
+
+  authorizedAt   DateTime?
+  capturedAt     DateTime?
+  failureCode    String?
+  failureMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Restrict)
+  refunds Refund[]
+
+  @@index([status])
+  @@map("payments")
+}
+
+model Refund {
+  id          String       @id @default(cuid())
+  paymentId   String
+  providerRef String       @unique
+  amountCents Int
+  reason      String
+  initiatedByUserId String?
+  status      RefundStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payment     Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  initiatedBy User?   @relation("RefundInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+/// TIER 2 — written from Phase 7a, read from Phase 9.
+/// Append-only by construction. There is deliberately no mutable `balance`
+/// column anywhere in this schema: balances are aggregates over this table.
+/// A ledger reconstructed after the first refund disagrees with reality and
+/// gives no way to tell which number is wrong.
+model EarningsLedgerEntry {
+  id              String          @id @default(cuid())
+  expertProfileId String
+  entryType       LedgerEntryType
+  /// Signed. Negative for PAYOUT and REFUND_CLAWBACK.
+  amountCents     Int
+  currency        String          @default("INR")
+
+  sourceType  String
+  sourceId    String
+  /// Funds count toward "available" once this passes; "pending" before.
+  availableAt DateTime
+  description String?
+
+  createdAt DateTime @default(now())
+
+  expert ExpertProfile @relation(fields: [expertProfileId], references: [id], onDelete: Restrict)
+
+  @@index([expertProfileId, createdAt])
+  @@index([expertProfileId, availableAt])
+  @@map("earnings_ledger_entries")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// §3.7 Platform — TIER 1
+// ────────────────────────────────────────────────────────────────────────────
+
+model PlatformConfiguration {
+  id              String @id @default(cuid())
+  key             String @unique
+  value           Json
+  version         Int    @default(1)
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_configuration")
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  eventType String
+  channel   NotificationChannel
+  payload   Json                @default("{}")
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?
+  readAt    DateTime?
+  error     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("notifications")
+}
+
+/// Idempotency ledger (§20, §37.14). The unique constraint is the mechanism —
+/// a duplicate delivery is a no-op at the database level, not in application code.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  externalEventId String
+  eventType       String
+  payload         Json
+  processedAt     DateTime?
+  error           String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, externalEventId])
+  @@index([provider, processedAt])
+  @@map("webhook_events")
+}
+
+/// Narrow in V1: admin mutations and auth events only. Not a general event log.
+model AuditLog {
+  id          String    @id @default(cuid())
+  actorUserId String?
+  actorType   ActorType
+  action      String
+  entityType  String
+  entityId    String
+  before      Json?
+  after       Json?
+  ipAddress   String?
+
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
+}

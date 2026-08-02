@@ -1,0 +1,36 @@
+{
+  "name": "salesforce-expert-support",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "db:generate": "pnpm --filter @sfx/db generate",
+    "db:migrate": "pnpm --filter @sfx/db migrate",
+    "db:migrate:fresh": "pnpm --filter @sfx/db migrate:fresh",
+    "db:studio": "pnpm --filter @sfx/db studio",
+    "db:seed": "pnpm --filter @sfx/db seed",
+    "pg:start": "node scripts/local-postgres.mjs start",
+    "pg:stop": "node scripts/local-postgres.mjs stop",
+    "pg:reset": "node scripts/local-postgres.mjs reset",
+    "verify": "node scripts/verify.mjs",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@sfx/config": "workspace:*",
+    "embedded-postgres": "17.10.0-beta.17",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "pg": "^8.13.1"
+  }
+}
