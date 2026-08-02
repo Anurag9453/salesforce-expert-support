@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "build": "prisma generate",
     "clean": "rm -rf .turbo node_modules/.prisma",
-    "assert-schema": "dotenv -e ../../.env -- node scripts/assert-schema.mjs"
+    "assert-schema": "dotenv -e ../../.env -- node scripts/assert-schema.mjs",
+    "grant-role": "dotenv -e ../../.env -- node scripts/grant-role.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1"

@@ -322,13 +322,20 @@ model ExpertProfile {
 
   status          ExpertStatus @default(DRAFT)
   statusChangedAt DateTime     @default(now())
+  /// Set when the application enters SUBMITTED; orders the admin review queue.
+  submittedAt     DateTime?
   reviewedByUserId String?
   reviewNotes     String?
 
-  country             String
-  timezone            String
-  yearsExperience     Int
-  professionalSummary String
+  /// Nullable because a DRAFT application is genuinely incomplete — the expert
+  /// has started the wizard but not finished it. Completeness is enforced at the
+  /// SUBMIT boundary by the domain, not by the column: making these NOT NULL
+  /// would force placeholder values into the database to represent "unanswered",
+  /// which is worse than an honest null.
+  country             String?
+  timezone            String?
+  yearsExperience     Int?
+  professionalSummary String?
 
   /// Denormalised in V1 (§C6). Join tables were Tier 3 — language is a soft
   /// matching signal and certifications are read by a human reviewer.

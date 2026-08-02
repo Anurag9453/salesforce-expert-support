@@ -23,7 +23,8 @@
     "pg:stop": "node scripts/local-postgres.mjs stop",
     "pg:reset": "node scripts/local-postgres.mjs reset",
     "verify": "node scripts/verify.mjs",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "e2e:phase2": "bash scripts/e2e/phase2-accounts.sh"
   },
   "devDependencies": {
     "@sfx/config": "workspace:*",

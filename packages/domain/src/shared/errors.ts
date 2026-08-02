@@ -51,14 +51,18 @@ export class ConflictError extends DomainError {
 }
 
 /**
- * §16 — the state machine rejects an illegal move rather than silently
- * tolerating it. Carries both states so the log line is self-explanatory.
+ * §16 — a state machine rejects an illegal move rather than silently tolerating
+ * it. Carries both states so the log line is self-explanatory.
+ *
+ * Generic over the state type: the request lifecycle and the expert-application
+ * lifecycle are different enums but the same class of failure, and constraining
+ * this to `RequestState` would force one of them to cast.
  */
-export class IllegalTransitionError extends DomainError {
+export class IllegalTransitionError<TState extends string = RequestState> extends DomainError {
   readonly code = "ILLEGAL_STATE_TRANSITION" as const;
   constructor(
-    readonly from: RequestState,
-    readonly to: RequestState,
+    readonly from: TState,
+    readonly to: TState,
     reason?: string,
   ) {
     super(`Illegal state transition ${from} → ${to}${reason ? `: ${reason}` : ""}`, {
@@ -70,11 +74,11 @@ export class IllegalTransitionError extends DomainError {
 }
 
 /** A guard on a legal transition failed (e.g. payment authorization lapsed). */
-export class TransitionGuardError extends DomainError {
+export class TransitionGuardError<TState extends string = RequestState> extends DomainError {
   readonly code = "CONFLICT" as const;
   constructor(
-    readonly from: RequestState,
-    readonly to: RequestState,
+    readonly from: TState,
+    readonly to: TState,
     readonly guard: string,
   ) {
     super(`Transition ${from} → ${to} blocked by guard: ${guard}`, { from, to, guard });
