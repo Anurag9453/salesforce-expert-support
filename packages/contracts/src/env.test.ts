@@ -69,6 +69,15 @@ describe("server env", () => {
     expect(env.CLASSIFIER_TIMEOUT_MS).toBe(2500);
   });
 
+  it("defaults the offer window to 60 seconds and allows a short one", () => {
+    expect(parseServerEnv(valid).OFFER_WINDOW_SECONDS).toBe(60);
+    expect(parseServerEnv({ ...valid, OFFER_WINDOW_SECONDS: "8" }).OFFER_WINDOW_SECONDS).toBe(8);
+    // A ten-minute offer window would be a typo, not a policy.
+    expect(() => parseServerEnv({ ...valid, OFFER_WINDOW_SECONDS: "6000" })).toThrow(
+      EnvValidationError,
+    );
+  });
+
   describe("presence timings (§C4)", () => {
     it("defaults to a 45s ping inside a 3-minute window", () => {
       const env = parseServerEnv(valid);

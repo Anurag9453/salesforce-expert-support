@@ -44,6 +44,12 @@ const REQUIRED_INDEXES = [
     why: "keeps quoting deterministic",
     mustBeUnique: true,
   },
+  {
+    name: "attempt_open_offer_idx",
+    table: "matching_attempts",
+    why: "dispatch loop's open-offer lookup (§15)",
+    mustBeUnique: false,
+  },
 ];
 
 const prisma = new PrismaClient();

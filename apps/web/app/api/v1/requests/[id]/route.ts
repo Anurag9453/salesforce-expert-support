@@ -1,6 +1,6 @@
 import { apiOk, handleRoute } from "@/lib/route-helpers";
 import { getContainer } from "@/lib/container";
-import { toRequestView } from "@/lib/request-view";
+import { loadMatchedExpert, toRequestView } from "@/lib/request-view";
 import { requireActor } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,13 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     const tier = await pricing.findTierById(record.pricingTierId);
 
     return apiOk(
-      toRequestView(record, await attachments.listForRequest(id), tier?.durationMinutes ?? 30),
+      toRequestView(
+        record,
+        await attachments.listForRequest(id),
+        tier?.durationMinutes ?? 30,
+        new Date(),
+        await loadMatchedExpert(getContainer().prisma, record),
+      ),
     );
   });
 }

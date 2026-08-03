@@ -9,9 +9,9 @@
  *   security/         secret detection and redaction
  *   classification/   problem classification, non-blocking
  *   support-requests/ the §16 request state machine
+ *   matching/         filters, scoring, ranking, the dispatch loop
  *
- * Matching (Phase 5), sessions (Phase 8) and payments (Phase 7) land here as
- * their phases open.
+ * Sessions (Phase 8) and payments (Phase 7) land here as their phases open.
  */
 export * from "./shared/index.js";
 export * from "./ports/index.js";
@@ -21,3 +21,4 @@ export * from "./experts/index.js";
 export * from "./security/index.js";
 export * from "./classification/index.js";
 export * from "./support-requests/index.js";
+export * from "./matching/index.js";

@@ -7,7 +7,9 @@ import {
   MockPayoutProvider,
   PgBossScheduler,
   PrismaAttachmentRepository,
+  PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
+  PrismaMatchingRepository,
   PrismaExpertProfileRepository,
   PrismaExpertSkillRepository,
   PrismaPricingRepository,
@@ -21,11 +23,13 @@ import { prisma } from "@sfx/db";
 import type { PrismaClient } from "@sfx/db";
 import {
   AccountService,
+  DEFAULT_MATCHING_THRESHOLDS,
   ExpertAdminService,
   ExpertApplicationService,
   ExpertAvailabilityService,
   ExpertProfileService,
   ExpertSkillService,
+  MatchingService,
   SupportRequestService,
   systemClock,
   type AttachmentRepository,
@@ -73,6 +77,13 @@ export interface Container {
   readonly expertAvailability: ExpertAvailabilityService;
   readonly expertSkills: ExpertSkillService;
   readonly expertProfiles: ExpertProfileService;
+  /**
+   * The web app calls this for expert responses and admin dispatch only. The
+   * *loop* — timers, relaxation, re-dispatch — runs in the worker (D2); a
+   * serverless handler cannot be trusted to still be executing in 60 seconds.
+   */
+  readonly matching: MatchingService;
+  readonly matchingRepo: PrismaMatchingRepository;
   readonly supportRequests: SupportRequestService;
   /** Built lazily — it needs the taxonomy, which lives in the database. */
   buildClassifier(): Promise<ProblemClassifier>;
@@ -135,6 +146,7 @@ function build(): Container {
   const taxonomy = new PrismaTaxonomyRepository(prisma);
   const pricing = new PrismaPricingRepository(prisma);
   const attachments = new PrismaAttachmentRepository(prisma);
+  const matchingRepo = new PrismaMatchingRepository(prisma);
 
   return {
     prisma,
@@ -166,6 +178,27 @@ function build(): Container {
       applications: uow.expertApplications,
       auditLog: uow.auditLog,
       clock,
+    }),
+    matchingRepo,
+    matching: new MatchingService({
+      requests,
+      matching: matchingRepo,
+      candidates: new PrismaCandidateRepository(prisma),
+      auditLog: uow.auditLog,
+      scheduler,
+      clock,
+      logger,
+      queues: {
+        dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
+        offerTimeout: QUEUES.OFFER_TIMEOUT,
+        matchingDeadline: QUEUES.MATCHING_DEADLINE,
+      },
+      thresholds: {
+        ...DEFAULT_MATCHING_THRESHOLDS,
+        offerWindowSeconds: env.OFFER_WINDOW_SECONDS,
+        heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+        offerPresenceGraceSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+      },
     }),
     expertProfiles: new ExpertProfileService({
       profiles: new PrismaExpertProfileRepository(prisma),

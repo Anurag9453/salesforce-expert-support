@@ -161,6 +161,19 @@ export interface SupportRequestRepository {
    */
   applyTransition(input: StateTransitionInput): Promise<SupportRequestRecord | null>;
 
+  /**
+   * Records the expert who accepted.
+   *
+   * Separate from `applyTransition` because the assignment is a fact about the
+   * request rather than a property of the move — a later admin re-assignment
+   * changes it without changing state.
+   */
+  assignExpert(params: {
+    readonly requestId: string;
+    readonly expertProfileId: string;
+    readonly now: Date;
+  }): Promise<void>;
+
   attachSkills(input: AttachSkillsInput): Promise<void>;
   recordClassification(params: {
     readonly requestId: string;

@@ -339,6 +339,29 @@ export class PrismaSupportRequestRepository implements SupportRequestRepository 
     return this.findById(input.requestId);
   }
 
+  /**
+   * Records the accepting expert.
+   *
+   * Guarded on the row not already having one, so a late duplicate accept
+   * cannot reassign a request that is already spoken for. Returns silently
+   * either way — the caller's `closeOffer` guard has already decided who won.
+   */
+  async assignExpert(params: {
+    requestId: string;
+    expertProfileId: string;
+    now: Date;
+  }): Promise<void> {
+    await this.db.supportRequest.updateMany({
+      where: { id: params.requestId, assignedExpertId: null },
+      data: { assignedExpertId: params.expertProfileId },
+    });
+    // Feeds `fairnessScore` and the reliability metrics on the next match.
+    await this.db.expertProfile.update({
+      where: { id: params.expertProfileId },
+      data: { lastAssignedAt: params.now, offersAccepted: { increment: 1 } },
+    });
+  }
+
   async attachSkills(input: AttachSkillsInput): Promise<void> {
     if (input.skills.length === 0) return;
     // skipDuplicates makes a redelivered classification job idempotent against

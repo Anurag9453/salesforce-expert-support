@@ -1,5 +1,5 @@
 import { parseServerEnv } from "@sfx/contracts";
-import { ConsoleLogger } from "@sfx/adapters";
+import { ConsoleLogger, PgBossScheduler } from "@sfx/adapters";
 import { prisma } from "@sfx/db";
 import PgBoss from "pg-boss";
 import { buildWorkerContainer } from "./container.js";
@@ -9,6 +9,16 @@ import {
   type ClassifyRequestPayload,
 } from "./jobs/classify-request.js";
 import { runHeartbeatSweep, SWEEP_INTERVAL_MS } from "./jobs/heartbeat-sweep.js";
+import {
+  handleDispatchNextOffer,
+  handleMatchingDeadline,
+  handleOfferTimeout,
+  reconcileOffers,
+  recoverStalledSearches,
+  type DispatchNextOfferPayload,
+  type MatchingDeadlinePayload,
+  type OfferTimeoutPayload,
+} from "./jobs/dispatch.js";
 import { QUEUES, RETRY_POLICY, type QueueName } from "./queues.js";
 
 /**
@@ -69,10 +79,13 @@ async function main(): Promise<void> {
 
   // Handlers are registered by their phase:
   //   Phase 3 → CLASSIFY_REQUEST                                    ← live
-  //   Phase 4 → HEARTBEAT_SWEEP
-  //   Phase 5 → DISPATCH_NEXT_OFFER, OFFER_TIMEOUT, MATCHING_DEADLINE
+  //   Phase 4 → HEARTBEAT_SWEEP (an interval, not a queue)           ← live
+  //   Phase 5 → DISPATCH_NEXT_OFFER, OFFER_TIMEOUT, MATCHING_DEADLINE ← live
   //   Phase 6 → NOTIFICATION_DISPATCH
-  const container = await buildWorkerContainer();
+  //
+  // The container enqueues through the boss this process already started, so
+  // there is one connection pool rather than two.
+  const container = await buildWorkerContainer(new PgBossScheduler(boss, logger));
 
   await boss.work<ClassifyRequestPayload>(
     QUEUES.CLASSIFY_REQUEST,
@@ -84,6 +97,34 @@ async function main(): Promise<void> {
     },
   );
   logger.info("handler registered", { queue: QUEUES.CLASSIFY_REQUEST });
+
+  // ── The dispatch loop (§15) ────────────────────────────────────────────────
+  //
+  // Three queues, one per timing fact. Each handler is idempotent: pg-boss
+  // guarantees at-least-once delivery, and a duplicate must be a no-op rather
+  // than a second offer or a fresh 60-second window.
+  await boss.work<DispatchNextOfferPayload>(
+    QUEUES.DISPATCH_NEXT_OFFER,
+    { batchSize: 1 },
+    async (jobs) => {
+      for (const job of jobs) await handleDispatchNextOffer(container, job.data);
+    },
+  );
+
+  await boss.work<OfferTimeoutPayload>(QUEUES.OFFER_TIMEOUT, { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await handleOfferTimeout(container, job.data);
+  });
+
+  await boss.work<MatchingDeadlinePayload>(
+    QUEUES.MATCHING_DEADLINE,
+    { batchSize: 1 },
+    async (jobs) => {
+      for (const job of jobs) await handleMatchingDeadline(container, job.data);
+    },
+  );
+  logger.info("dispatch handlers registered", {
+    queues: [QUEUES.DISPATCH_NEXT_OFFER, QUEUES.OFFER_TIMEOUT, QUEUES.MATCHING_DEADLINE],
+  });
 
   // Recovery janitor, not a dispatch mechanism. Catches requests stranded in
   // CLASSIFYING if an enqueue is ever lost — a stuck request is invisible to
@@ -107,6 +148,30 @@ async function main(): Promise<void> {
     });
   }, SWEEP_INTERVAL_MS);
   presenceTimer.unref();
+
+  // Requirement 14, second half. Runs after the presence sweep on the same
+  // cadence: the sweep marks stale experts OFFLINE, this notices the ones who
+  // were holding an offer when it happened and gives the request back to the
+  // dispatcher. Phase 4 deliberately left ON_OFFER alone because it had nothing
+  // to re-dispatch with.
+  const reconcileTimer = setInterval(() => {
+    void reconcileOffers(container).catch((error: unknown) => {
+      logger.error("offer reconciliation failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, SWEEP_INTERVAL_MS);
+  reconcileTimer.unref();
+
+  const recoveryTimer = setInterval(() => {
+    void recoverStalledSearches(container).catch((error: unknown) => {
+      logger.error("stalled-search recovery failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, SWEEP_INTERVAL_MS);
+  recoveryTimer.unref();
+
   logger.info("presence sweep scheduled", {
     everySeconds: SWEEP_INTERVAL_MS / 1000,
     staleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,

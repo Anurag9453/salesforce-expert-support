@@ -1,0 +1,963 @@
+import type { AvailabilityStatus } from "@sfx/contracts";
+import { authorize, type Actor } from "../authorization/index.js";
+import type { Clock } from "../ports/clock.js";
+import type { Logger } from "../ports/logger.js";
+import type { AttemptOrigin, DeclineReasonCode } from "@sfx/contracts";
+import type {
+  CandidateRepository,
+  MatchingAttemptRecord,
+  MatchingRepository,
+  MatchingRunRecord,
+  RequiredSkill,
+} from "../ports/matching-repositories.js";
+import type {
+  JobScheduler,
+  SupportRequestRecord,
+  SupportRequestRepository,
+} from "../ports/request-repositories.js";
+import type { AuditLogRepository } from "../ports/repositories.js";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../shared/errors.js";
+import { assertTransition } from "../support-requests/state-machine.js";
+import type { ExclusionReason } from "./filters.js";
+import { rankCandidates, type RankingResult } from "./rank.js";
+import { MAX_RELAXATION_LEVEL, ruleForLevel, scheduledLevel } from "./relaxation.js";
+import { DEFAULT_SCORING_THRESHOLDS, DEFAULT_WEIGHTS, type ScoringWeights } from "./scoring.js";
+
+/**
+ * Stages 4 and 5 — dispatch, and controlled relaxation (§15).
+ *
+ * The pure half of matching lives in `rank.ts` and answers "who, in what
+ * order". This half answers "and then what", which needs a clock, a database
+ * and a job queue, and is therefore the part that has to survive crashes,
+ * duplicate deliveries and two workers racing.
+ *
+ * Three timing facts hold the loop together, and each is stored rather than
+ * inferred:
+ *
+ *   - `SupportRequest.matchDeadlineAt` — 15 minutes from submission, set once
+ *     and **never** recomputed (requirement 7). Not by an offer expiring, not
+ *     by relaxation stepping up, not by a re-dispatch.
+ *   - `MatchingAttempt.offerExpiresAt` — 60 seconds from the offer, stored so a
+ *     worker restart or a duplicate job cannot buy a fresh window
+ *     (requirement 8).
+ *   - `MatchingAttempt.status` — the single source of truth for whether an
+ *     offer is still live. Every write is guarded on it, so a decline racing a
+ *     timeout produces one winner and one no-op.
+ */
+
+export interface MatchingThresholds {
+  readonly offerWindowSeconds: number;
+  readonly candidatePoolSize: number;
+  readonly fairnessHorizonMinutes: number;
+  readonly ratingPriorCount: number;
+  readonly ratingPriorMean: number;
+  readonly minRating: number;
+  readonly minRatedSessions: number;
+  readonly heartbeatStaleAfterSeconds: number;
+  /** How long an OFFERED expert may be silent before the offer is reconciled away. */
+  readonly offerPresenceGraceSeconds: number;
+}
+
+export const DEFAULT_MATCHING_THRESHOLDS: MatchingThresholds = {
+  offerWindowSeconds: 60,
+  candidatePoolSize: 10,
+  ...DEFAULT_SCORING_THRESHOLDS,
+  minRating: 3.5,
+  minRatedSessions: 3,
+  heartbeatStaleAfterSeconds: 180,
+  offerPresenceGraceSeconds: 180,
+};
+
+export interface MatchingQueues {
+  readonly dispatchNextOffer: string;
+  readonly offerTimeout: string;
+  readonly matchingDeadline: string;
+}
+
+export interface MatchingServiceDeps {
+  readonly requests: SupportRequestRepository;
+  readonly matching: MatchingRepository;
+  readonly candidates: CandidateRepository;
+  readonly auditLog: AuditLogRepository;
+  readonly scheduler: JobScheduler;
+  readonly clock: Clock;
+  readonly logger: Logger;
+  readonly queues: MatchingQueues;
+  readonly weights?: ScoringWeights;
+  readonly thresholds?: MatchingThresholds;
+}
+
+export interface DispatchOutcome {
+  readonly action:
+    | "OFFERED"
+    | "RELAXED"
+    | "NO_EXPERT_FOUND"
+    | "DEADLINE_PASSED"
+    | "ALREADY_OFFERED"
+    | "NOT_SEARCHING";
+  readonly attempt?: MatchingAttemptRecord;
+  readonly relaxationLevel?: number;
+  readonly reason?: string;
+}
+
+export class MatchingService {
+  private readonly weights: ScoringWeights;
+  private readonly thresholds: MatchingThresholds;
+
+  constructor(private readonly deps: MatchingServiceDeps) {
+    this.weights = deps.weights ?? DEFAULT_WEIGHTS;
+    this.thresholds = deps.thresholds ?? DEFAULT_MATCHING_THRESHOLDS;
+  }
+
+  // ── Entry ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Called when a request reaches SEARCHING.
+   *
+   * Schedules the 15-minute deadline once, here, from a value already stored on
+   * the request. The job is a backstop for a search that stalls; the *authority*
+   * is `matchDeadlineAt`, which every dispatch re-reads.
+   */
+  async beginSearch(supportRequestId: string): Promise<DispatchOutcome> {
+    const request = await this.requireRequest(supportRequestId);
+
+    await this.deps.scheduler.enqueue({
+      queue: this.deps.queues.matchingDeadline,
+      payload: { supportRequestId },
+      runAfterSeconds: Math.max(
+        0,
+        Math.ceil((request.matchDeadlineAt.getTime() - this.deps.clock.now().getTime()) / 1000),
+      ),
+      // One deadline per request, ever. A re-entry into SEARCHING must not
+      // schedule a second one.
+      singletonKey: `deadline:${supportRequestId}`,
+    });
+
+    return this.dispatchNextOffer(supportRequestId);
+  }
+
+  // ── Stage 4: dispatch ──────────────────────────────────────────────────────
+
+  /**
+   * Offer the request to the next-best candidate, relaxing if the pool is dry.
+   *
+   * Idempotent by construction. Every early return is a state the caller might
+   * legitimately be in after a retry: already offered, no longer searching,
+   * deadline passed.
+   */
+  async dispatchNextOffer(supportRequestId: string): Promise<DispatchOutcome> {
+    const now = this.deps.clock.now();
+    const request = await this.requireRequest(supportRequestId);
+
+    if (request.state !== "SEARCHING") {
+      // OFFERED means someone else's dispatch won the race, or the customer's
+      // request already moved on. Either way there is nothing to do.
+      return {
+        action: request.state === "OFFERED" ? "ALREADY_OFFERED" : "NOT_SEARCHING",
+        reason: `request is ${request.state}`,
+      };
+    }
+
+    // Requirement 7. Checked before every offer, from the stored value.
+    if (now >= request.matchDeadlineAt) {
+      await this.giveUp(request, "The 15-minute matching window elapsed.");
+      return { action: "DEADLINE_PASSED" };
+    }
+
+    let run = await this.deps.matching.latestRunForRequest(supportRequestId);
+    if (!run) run = await this.createRun(request, 0, now);
+
+    // Walk candidates at this level, then step up a level, until something
+    // sticks or we run out of both.
+    for (;;) {
+      const offered = await this.tryOfferFromRun(request, run, now);
+      if (offered) {
+        return { action: "OFFERED", attempt: offered, relaxationLevel: run.relaxationLevel };
+      }
+
+      const nextLevel = run.relaxationLevel + 1;
+      if (nextLevel > MAX_RELAXATION_LEVEL) {
+        await this.giveUp(
+          request,
+          "No expert met the minimum competence for this problem, even at maximum relaxation.",
+        );
+        return { action: "NO_EXPERT_FOUND" };
+      }
+
+      // The schedule caps how fast we relax. A search that burns through three
+      // candidates in ten seconds should not arrive at level 3 immediately —
+      // the point of relaxing is to trade quality for time, and no time has
+      // passed yet.
+      const elapsedMinutes = (now.getTime() - request.createdAt.getTime()) / 60_000;
+      if (nextLevel > scheduledLevel(elapsedMinutes)) {
+        this.deps.logger.info("matching pool exhausted; waiting for the relaxation schedule", {
+          supportRequestId,
+          currentLevel: run.relaxationLevel,
+          elapsedMinutes: Math.round(elapsedMinutes),
+        });
+        // Come back when the next level is due. Not a failure — experts also
+        // come online during this window and get picked up by the re-rank.
+        await this.deps.scheduler.enqueue({
+          queue: this.deps.queues.dispatchNextOffer,
+          payload: { supportRequestId },
+          runAfterSeconds: this.secondsUntilNextLevel(nextLevel, request.createdAt, now),
+          singletonKey: `dispatch:${supportRequestId}:level:${nextLevel}`,
+        });
+        return { action: "RELAXED", relaxationLevel: run.relaxationLevel };
+      }
+
+      await this.deps.matching.supersedeRankedAttempts({ matchingRunId: run.id, now });
+      await this.deps.matching.completeRun({ matchingRunId: run.id, now });
+      run = await this.createRun(request, nextLevel, now);
+    }
+  }
+
+  /**
+   * Try each ranked candidate in this run until one accepts the offer lock.
+   *
+   * The loop is requirement 14's answer for the pre-offer case: an expert who
+   * went offline, took another offer, or was suspended between ranking and
+   * dispatch simply fails the guarded write, gets marked WITHDRAWN, and we move
+   * on. The request is never stranded on a stale ranking.
+   */
+  private async tryOfferFromRun(
+    request: SupportRequestRecord,
+    run: MatchingRunRecord,
+    now: Date,
+  ): Promise<MatchingAttemptRecord | null> {
+    for (;;) {
+      const attempt = await this.deps.matching.nextRankedAttempt({ matchingRunId: run.id });
+      if (!attempt) return null;
+
+      const offerExpiresAt = new Date(now.getTime() + this.thresholds.offerWindowSeconds * 1000);
+      // Never let an offer outlive the matching deadline — a 60-second window
+      // starting at t+14m50s would keep a customer waiting past the promise.
+      const expiresAt =
+        offerExpiresAt > request.matchDeadlineAt ? request.matchDeadlineAt : offerExpiresAt;
+
+      let opened: MatchingAttemptRecord | null = null;
+      try {
+        opened = await this.deps.matching.openOffer({
+          attemptId: attempt.id,
+          expertProfileId: attempt.expertProfileId,
+          now,
+          offerExpiresAt: expiresAt,
+        });
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error;
+        // `one_open_offer_per_expert` rejected the insert: this expert was
+        // offered a different request microseconds ago. Not an error — the
+        // index doing exactly what it exists for.
+        this.deps.logger.info("expert took another offer first", {
+          supportRequestId: request.id,
+          expertProfileId: attempt.expertProfileId,
+        });
+      }
+
+      if (!opened) {
+        await this.deps.matching.closeOffer({
+          attemptId: attempt.id,
+          expertProfileId: attempt.expertProfileId,
+          toStatus: "WITHDRAWN",
+          now,
+          // Not their fault and not their choice — must not touch their
+          // acceptance rate.
+          countAgainstReliability: false,
+          releaseTo: null,
+        });
+        continue;
+      }
+
+      await this.transition(request, "OFFERED", {
+        actorType: "SYSTEM",
+        reason: `Offered to expert ${attempt.expertProfileId} (rank ${String(attempt.rank)}).`,
+        metadata: { attemptId: opened.id, relaxationLevel: run.relaxationLevel },
+      });
+
+      await this.scheduleOfferTimeout(opened, now);
+      return opened;
+    }
+  }
+
+  /**
+   * Requirement 8 — the window is a stored deadline, and this job only reads it.
+   *
+   * `singletonKey` is the attempt id, so a re-enqueue collapses instead of
+   * stacking. The handler re-derives nothing.
+   */
+  private async scheduleOfferTimeout(attempt: MatchingAttemptRecord, now: Date): Promise<void> {
+    const expiresAt = attempt.offerExpiresAt ?? now;
+    await this.deps.scheduler.enqueue({
+      queue: this.deps.queues.offerTimeout,
+      payload: { supportRequestId: attempt.supportRequestId, matchingAttemptId: attempt.id },
+      runAfterSeconds: Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 1000)),
+      singletonKey: `offer-timeout:${attempt.id}`,
+    });
+  }
+
+  private async createRun(
+    request: SupportRequestRecord,
+    relaxationLevel: number,
+    now: Date,
+  ): Promise<MatchingRunRecord> {
+    const ranking = await this.rankFor(request, relaxationLevel, now);
+    const roundNumber = await this.deps.matching.nextRoundNumber(request.id);
+    const rule = ruleForLevel(relaxationLevel);
+
+    const run = await this.deps.matching.persistRun({
+      supportRequestId: request.id,
+      roundNumber,
+      relaxationLevel,
+      // §C7 — snapshotted onto the run, so a later weight change can never
+      // retroactively rewrite the reasoning behind this decision.
+      weightsSnapshot: { ...this.weights },
+      thresholdsSnapshot: { ...this.thresholds },
+      candidatePoolSize: ranking.ranked.length,
+      filtersApplied: {
+        primaryFloor: rule.primaryFloor,
+        secondaryCoverage: rule.secondaryCoverage,
+        enforceRatingFloor: rule.enforceRatingFloor,
+        enforceLanguage: rule.enforceLanguage,
+        widenSecondaryToCategory: rule.widenSecondaryToCategory,
+        describes: rule.describes,
+      },
+      now,
+      ranked: ranking.ranked.map((entry) => ({
+        expertProfileId: entry.expertProfileId,
+        rank: entry.rank,
+        score: entry.score,
+      })),
+      // Requirement 4: excluded candidates are recorded, with every reason.
+      excluded: ranking.excluded.map((entry) => ({
+        expertProfileId: entry.expertProfileId,
+        reasons: entry.reasons,
+      })),
+    });
+
+    this.deps.logger.info("matching run created", {
+      supportRequestId: request.id,
+      runId: run.id,
+      relaxationLevel,
+      ranked: ranking.ranked.length,
+      excluded: ranking.excluded.length,
+      primaryFloor: rule.primaryFloor,
+    });
+
+    return run;
+  }
+
+  /** Pure ranking, fed from the database. Separated so tests can call it alone. */
+  async rankFor(
+    request: SupportRequestRecord,
+    relaxationLevel: number,
+    now: Date,
+  ): Promise<RankingResult> {
+    const required: RequiredSkill[] = request.skills.map((skill) => ({
+      skillId: skill.skillId,
+      slug: skill.slug,
+      // The candidate query supplies category ids; the request skill record
+      // does not carry one, so category substitution keys off the candidate's
+      // own skills. Filled from the taxonomy by the adapter.
+      categoryId: "",
+      isPrimary: skill.isPrimary,
+    }));
+
+    const responded = new Set(await this.deps.matching.listRespondedExpertIds(request.id));
+
+    const rows = await this.deps.candidates.findCandidates({
+      supportRequestId: request.id,
+      requiredSkillIds: required.map((skill) => skill.skillId),
+      now,
+      // Fetch well beyond the pool size: the domain, not the query, decides who
+      // is excluded, and a truncated fetch would hide exclusions from the audit.
+      limit: Math.max(this.thresholds.candidatePoolSize * 5, 50),
+    });
+
+    return rankCandidates({
+      required: required.map((skill) => ({
+        ...skill,
+        categoryId: categoryOf(skill.skillId, rows) ?? "",
+      })),
+      candidates: rows.map((row) => ({
+        candidate: row.candidate,
+        eligibility: {
+          expertStatus: row.expertStatus,
+          accountStatus: row.accountStatus,
+          availabilityStatus: row.availabilityStatus,
+          lastHeartbeatAt: row.lastHeartbeatAt,
+          alreadyResponded: responded.has(row.candidate.expertProfileId),
+          isRequestingCustomer: row.customerUserId === row.candidate.userId,
+        },
+      })),
+      relaxationLevel,
+      weights: this.weights,
+      thresholds: this.thresholds,
+      customerLanguages: [],
+      now,
+      poolSize: this.thresholds.candidatePoolSize,
+      tieBreakSeed: request.id,
+    });
+  }
+
+  // ── Expert response ────────────────────────────────────────────────────────
+
+  /**
+   * Accept.
+   *
+   * Guarded on the attempt still being OFFERED *and* on the request still being
+   * OFFERED. A second click, or an accept arriving a moment after the timeout
+   * fired, loses the guard and returns the current state rather than throwing —
+   * an expert who accepted successfully should never see an error because they
+   * double-clicked.
+   */
+  async acceptOffer(actor: Actor, attemptId: string): Promise<MatchingAttemptRecord> {
+    authorize(actor, "offer:respond");
+    const now = this.deps.clock.now();
+    const attempt = await this.requireOwnAttempt(actor, attemptId);
+
+    if (attempt.status === "ACCEPTED") return attempt;
+    if (attempt.status !== "OFFERED") {
+      throw new ConflictError(this.closedOfferMessage(attempt), { status: attempt.status });
+    }
+    if (attempt.offerExpiresAt && now > attempt.offerExpiresAt) {
+      // The window closed even though the timeout job has not landed yet.
+      // Honour the deadline, not the job.
+      throw new ConflictError(
+        "That offer expired before your answer reached us. It has gone to another expert.",
+        { offerExpiresAt: attempt.offerExpiresAt.toISOString() },
+      );
+    }
+
+    const request = await this.requireRequest(attempt.supportRequestId);
+
+    const closed = await this.deps.matching.closeOffer({
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      toStatus: "ACCEPTED",
+      now,
+      countAgainstReliability: true,
+      // Committed to this request; not offerable to anything else.
+      releaseTo: "IN_SESSION",
+    });
+    if (!closed) {
+      const current = await this.deps.matching.findAttemptById(attempt.id);
+      throw new ConflictError(this.closedOfferMessage(current ?? attempt));
+    }
+
+    await this.transition(request, "ACCEPTED", {
+      actorType: "EXPERT",
+      actorUserId: actor.userId,
+      reason: "Expert accepted the offer.",
+      metadata: { attemptId: attempt.id, origin: attempt.origin },
+    });
+    await this.deps.requests.assignExpert({
+      requestId: request.id,
+      expertProfileId: attempt.expertProfileId,
+      now,
+    });
+
+    // Nothing else in this run can be offered now.
+    await this.deps.matching.supersedeRankedAttempts({ matchingRunId: attempt.matchingRunId, now });
+    await this.deps.matching.completeRun({ matchingRunId: attempt.matchingRunId, now });
+
+    this.deps.logger.info("offer accepted", {
+      supportRequestId: request.id,
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      origin: attempt.origin,
+      responseSeconds: closed.responseSeconds,
+    });
+
+    return closed;
+  }
+
+  /**
+   * Decline (requirements 9 and 10).
+   *
+   * The reason is optional, always. An expert who must justify saying no starts
+   * saying yes to work they should not take, and the whole product rests on
+   * them not doing that. What we do insist on is that a decline is recorded as
+   * a **decline** — `TIMED_OUT` is a different row, written by a different
+   * path, and the two are never conflated.
+   */
+  async declineOffer(
+    actor: Actor,
+    attemptId: string,
+    input: { reason?: DeclineReasonCode | null; note?: string | null } = {},
+  ): Promise<MatchingAttemptRecord> {
+    authorize(actor, "offer:respond");
+    const now = this.deps.clock.now();
+    const attempt = await this.requireOwnAttempt(actor, attemptId);
+
+    if (attempt.status === "DECLINED") return attempt;
+    if (attempt.status !== "OFFERED") {
+      throw new ConflictError(this.closedOfferMessage(attempt), { status: attempt.status });
+    }
+    if (input.note && input.note.length > 500) {
+      throw new ValidationError("That note is too long.", {
+        note: ["Keep it under 500 characters."],
+      });
+    }
+
+    const closed = await this.deps.matching.closeOffer({
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      toStatus: "DECLINED",
+      now,
+      declineReason: input.reason ?? null,
+      declineNote: input.note ?? null,
+      countAgainstReliability: true,
+      releaseTo: "AVAILABLE",
+    });
+    if (!closed) {
+      const current = await this.deps.matching.findAttemptById(attempt.id);
+      throw new ConflictError(this.closedOfferMessage(current ?? attempt));
+    }
+
+    this.deps.logger.info("offer declined", {
+      supportRequestId: attempt.supportRequestId,
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      declineReason: input.reason ?? null,
+    });
+
+    await this.returnToSearching(attempt.supportRequestId, "Expert declined.", now);
+    return closed;
+  }
+
+  /**
+   * The 60-second timeout (requirements 8 and 10).
+   *
+   * Three things this does *not* do, each deliberate:
+   *
+   *   - It does not compute a deadline. `offerExpiresAt` was stored when the
+   *     offer opened; if the job arrives early — a duplicate delivery, a worker
+   *     that restarted and replayed — it re-schedules for the remaining time
+   *     rather than expiring the offer or extending the window.
+   *   - It does not treat the timeout as a decline. Separate status, separate
+   *     meaning: silence is not an answer.
+   *   - It does not touch `matchDeadlineAt`. An offer expiring buys the
+   *     customer nothing (requirement 7).
+   */
+  async expireOffer(attemptId: string): Promise<{ expired: boolean; reason: string }> {
+    const now = this.deps.clock.now();
+    const attempt = await this.deps.matching.findAttemptById(attemptId);
+    if (!attempt) return { expired: false, reason: "attempt no longer exists" };
+    if (attempt.status !== "OFFERED") {
+      return { expired: false, reason: `attempt is ${attempt.status}` };
+    }
+
+    if (attempt.offerExpiresAt && now < attempt.offerExpiresAt) {
+      const remaining = Math.ceil((attempt.offerExpiresAt.getTime() - now.getTime()) / 1000);
+      this.deps.logger.warn("offer timeout fired early; re-scheduling, not extending", {
+        attemptId,
+        remainingSeconds: remaining,
+      });
+      await this.deps.scheduler.enqueue({
+        queue: this.deps.queues.offerTimeout,
+        payload: { supportRequestId: attempt.supportRequestId, matchingAttemptId: attempt.id },
+        runAfterSeconds: remaining,
+        singletonKey: `offer-timeout:${attempt.id}:retry`,
+      });
+      return { expired: false, reason: "window has not closed yet" };
+    }
+
+    const closed = await this.deps.matching.closeOffer({
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      toStatus: "TIMED_OUT",
+      now,
+      countAgainstReliability: true,
+      releaseTo: "AVAILABLE",
+    });
+    if (!closed) return { expired: false, reason: "the expert answered first" };
+
+    this.deps.logger.info("offer timed out", {
+      supportRequestId: attempt.supportRequestId,
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+    });
+
+    await this.returnToSearching(attempt.supportRequestId, "Offer timed out.", now);
+    return { expired: true, reason: "offer window elapsed" };
+  }
+
+  /**
+   * The 15-minute backstop (requirement 7).
+   *
+   * Measured from submission to **acceptance**, not to the last offer. A
+   * request still searching or still holding an open offer at the deadline is
+   * given up on.
+   */
+  async expireMatching(supportRequestId: string): Promise<{ gaveUp: boolean; reason: string }> {
+    const now = this.deps.clock.now();
+    const request = await this.deps.requests.findById(supportRequestId);
+    if (!request) return { gaveUp: false, reason: "request no longer exists" };
+
+    if (request.state !== "SEARCHING" && request.state !== "OFFERED") {
+      return { gaveUp: false, reason: `request is ${request.state}` };
+    }
+    if (now < request.matchDeadlineAt) {
+      return { gaveUp: false, reason: "deadline has not passed" };
+    }
+
+    const open = await this.deps.matching.findOpenOffer(supportRequestId);
+    if (open) {
+      // An offer still on the table at the deadline is withdrawn, not counted
+      // against the expert — they may have been about to accept.
+      await this.deps.matching.closeOffer({
+        attemptId: open.id,
+        expertProfileId: open.expertProfileId,
+        toStatus: "WITHDRAWN",
+        now,
+        countAgainstReliability: false,
+        releaseTo: "AVAILABLE",
+      });
+    }
+
+    await this.giveUp(request, "The 15-minute matching window elapsed.");
+    return { gaveUp: true, reason: "deadline passed" };
+  }
+
+  // ── Requirement 14: experts who become ineligible mid-offer ────────────────
+
+  /**
+   * Withdraw offers held by experts who should no longer hold them.
+   *
+   * Runs on the worker's janitor cadence alongside the presence sweep. Phase 4
+   * left `ON_OFFER` alone because it had nothing to re-dispatch with; this is
+   * the other half of that decision.
+   *
+   * Withdrawal never counts against the expert. Being suspended, or losing
+   * connectivity, is not a decline.
+   */
+  async reconcileStaleOffers(limit = 50): Promise<{ withdrawn: number }> {
+    const now = this.deps.clock.now();
+    const staleBefore = new Date(now.getTime() - this.thresholds.offerPresenceGraceSeconds * 1000);
+    const rows = await this.deps.matching.listOffersNeedingReconciliation({ staleBefore, limit });
+
+    let withdrawn = 0;
+    for (const row of rows) {
+      const closed = await this.deps.matching.closeOffer({
+        attemptId: row.attempt.id,
+        expertProfileId: row.attempt.expertProfileId,
+        toStatus: "WITHDRAWN",
+        now,
+        countAgainstReliability: false,
+        // Suspended or gone: OFFLINE, not back into the pool.
+        releaseTo: "OFFLINE",
+      });
+      if (!closed) continue;
+
+      withdrawn += 1;
+      this.deps.logger.warn("withdrew an offer from an expert who became ineligible", {
+        supportRequestId: row.attempt.supportRequestId,
+        attemptId: row.attempt.id,
+        expertProfileId: row.attempt.expertProfileId,
+        expertStatus: row.expertStatus,
+        availabilityStatus: row.availabilityStatus,
+      });
+
+      // The request must not be left holding an offer nobody will answer.
+      await this.returnToSearching(
+        row.attempt.supportRequestId,
+        "The expert became unavailable while the offer was open.",
+        now,
+      );
+    }
+
+    return { withdrawn };
+  }
+
+  /**
+   * Re-dispatch requests that stalled (requirement 14).
+   *
+   * §17 rules out polling as the *dispatch mechanism*; this is a janitor, like
+   * the Phase 3 classification sweep. Without it a lost enqueue means a paying
+   * customer waits out the full 15 minutes for a `NO_EXPERT_FOUND` that a live
+   * bench would have answered immediately — technically not stranded, but not an
+   * acceptable outcome either.
+   */
+  async recoverStalledSearches(limit = 25): Promise<{ recovered: number }> {
+    const now = this.deps.clock.now();
+    // Generous: a healthy dispatch completes in well under the offer window, so
+    // anything quiet for longer than one window has genuinely stalled.
+    const stalledBefore = new Date(now.getTime() - this.thresholds.offerWindowSeconds * 1000);
+    const ids = await this.deps.matching.listStalledSearches({ stalledBefore, limit });
+
+    let recovered = 0;
+    for (const id of ids) {
+      this.deps.logger.warn("re-dispatching a stalled search", { supportRequestId: id });
+      const outcome = await this.dispatchNextOffer(id);
+      if (outcome.action === "OFFERED" || outcome.action === "NO_EXPERT_FOUND") recovered += 1;
+    }
+    return { recovered };
+  }
+
+  // ── Stage 4b: admin dispatch (requirements 12 and 13) ──────────────────────
+
+  /**
+   * Assign — offer to a specific candidate, ranking bypassed but rules intact.
+   *
+   * The operator is choosing *who*, not overriding *whether*. The expert must
+   * be approved, available and present, and must still accept. A reason is
+   * required because a manual intervention that nobody can explain later is
+   * indistinguishable from a bug.
+   */
+  async adminAssign(
+    actor: Actor,
+    params: { supportRequestId: string; expertProfileId: string; reason: string },
+  ): Promise<MatchingAttemptRecord> {
+    authorize(actor, "matching:admin_assign");
+    return this.adminOffer(actor, { ...params, origin: "ADMIN_ASSIGN" });
+  }
+
+  /**
+   * Force Assign — override the algorithm's constraints entirely.
+   *
+   * Skips scoring, ranking, competence, and the availability requirement. For
+   * the case where an operator has already reached the expert out-of-band and
+   * needs the system to catch up.
+   *
+   * What it does **not** skip is consent. §C5 originally sent force-assign
+   * straight to ACCEPTED; the user overruled that in Phase 2 and the rule is
+   * now absolute — an expert is never committed to a session they did not
+   * agree to, whoever is asking. The offer arrives with the normal 60-second
+   * window and the normal accept/decline buttons.
+   */
+  async adminForceAssign(
+    actor: Actor,
+    params: { supportRequestId: string; expertProfileId: string; reason: string },
+  ): Promise<MatchingAttemptRecord> {
+    authorize(actor, "matching:admin_force_assign");
+    return this.adminOffer(actor, { ...params, origin: "ADMIN_FORCE_ASSIGN" });
+  }
+
+  private async adminOffer(
+    actor: Actor,
+    params: {
+      supportRequestId: string;
+      expertProfileId: string;
+      reason: string;
+      origin: Extract<AttemptOrigin, "ADMIN_ASSIGN" | "ADMIN_FORCE_ASSIGN">;
+    },
+  ): Promise<MatchingAttemptRecord> {
+    const now = this.deps.clock.now();
+    const reason = params.reason.trim();
+    if (reason.length === 0) {
+      throw new ValidationError("Record why you are assigning this manually.", {
+        reason: ["A reason is required."],
+      });
+    }
+
+    const request = await this.requireRequest(params.supportRequestId);
+    if (request.state !== "SEARCHING" && request.state !== "OFFERED") {
+      throw new ConflictError(
+        `This request is ${request.state}. Manual assignment only applies while it is still being matched.`,
+      );
+    }
+
+    const held = await this.deps.matching.findOpenOfferForExpert(params.expertProfileId);
+    if (held) {
+      throw new ConflictError(
+        "That expert already has an open offer. Wait for them to answer it, or pick someone else.",
+        { attemptId: held.id },
+      );
+    }
+
+    // Re-assigning over a live offer supersedes it rather than racing it. The
+    // superseded expert is not penalised — they were not given their 60 seconds.
+    const openOffer = await this.deps.matching.findOpenOffer(request.id);
+    if (openOffer) {
+      await this.deps.matching.closeOffer({
+        attemptId: openOffer.id,
+        expertProfileId: openOffer.expertProfileId,
+        toStatus: "SUPERSEDED",
+        now,
+        countAgainstReliability: false,
+        releaseTo: "AVAILABLE",
+      });
+    }
+
+    let run = await this.deps.matching.latestRunForRequest(request.id);
+    run ??= await this.createRun(request, 0, now);
+
+    const attempt = await this.deps.matching.createAdminAttempt({
+      matchingRunId: run.id,
+      supportRequestId: request.id,
+      expertProfileId: params.expertProfileId,
+      origin: params.origin,
+      adminReason: reason,
+      now,
+    });
+
+    const offerExpiresAt = new Date(now.getTime() + this.thresholds.offerWindowSeconds * 1000);
+    const opened = await this.deps.matching.openOffer({
+      attemptId: attempt.id,
+      expertProfileId: params.expertProfileId,
+      now,
+      // An admin assignment may legitimately outlive the matching deadline —
+      // the operator has taken over from the automation.
+      offerExpiresAt,
+    });
+    if (!opened) {
+      throw new ConflictError(
+        "Could not offer to that expert — their availability changed. Reload and try again.",
+      );
+    }
+
+    // OFFERED → OFFERED is a legal admin move; SEARCHING → OFFERED is the
+    // ordinary one. Both are in the §16 table.
+    await this.transition(await this.requireRequest(request.id), "OFFERED", {
+      actorType: "ADMIN",
+      actorUserId: actor.userId,
+      reason,
+      metadata: { attemptId: opened.id, origin: params.origin },
+    });
+
+    await this.scheduleOfferTimeout(opened, now);
+
+    // Requirement 13. The attempt's `origin` already distinguishes it forever;
+    // the audit row is what makes *who and why* answerable.
+    await this.deps.auditLog.record({
+      actorUserId: actor.userId,
+      actorType: "ADMIN",
+      action:
+        params.origin === "ADMIN_FORCE_ASSIGN" ? "matching.force_assigned" : "matching.assigned",
+      entityType: "SupportRequest",
+      entityId: request.id,
+      before: { state: request.state, assignedExpertId: request.assignedExpertId },
+      after: {
+        expertProfileId: params.expertProfileId,
+        attemptId: opened.id,
+        origin: params.origin,
+        reason,
+        supersededAttemptId: openOffer?.id ?? null,
+        adminEmail: actor.email,
+        at: now.toISOString(),
+        note: "The expert must still accept. Manual assignment does not bypass consent.",
+      },
+    });
+
+    this.deps.logger.warn("manual dispatch", {
+      supportRequestId: request.id,
+      expertProfileId: params.expertProfileId,
+      origin: params.origin,
+      adminUserId: actor.userId,
+    });
+
+    return opened;
+  }
+
+  // ── Shared ─────────────────────────────────────────────────────────────────
+
+  /** Back to SEARCHING, then re-dispatch — unless the deadline has passed. */
+  private async returnToSearching(
+    supportRequestId: string,
+    reason: string,
+    now: Date,
+  ): Promise<void> {
+    const request = await this.deps.requests.findById(supportRequestId);
+    if (!request || request.state !== "OFFERED") return;
+
+    if (now >= request.matchDeadlineAt) {
+      await this.giveUp(request, "The 15-minute matching window elapsed.");
+      return;
+    }
+
+    await this.transition(request, "SEARCHING", { actorType: "SYSTEM", reason });
+    await this.deps.scheduler.enqueue({
+      queue: this.deps.queues.dispatchNextOffer,
+      payload: { supportRequestId },
+    });
+  }
+
+  private async giveUp(request: SupportRequestRecord, reason: string): Promise<void> {
+    if (request.state !== "SEARCHING" && request.state !== "OFFERED") return;
+    await this.transition(request, "NO_EXPERT_FOUND", { actorType: "SYSTEM", reason });
+    this.deps.logger.warn("no expert found", { supportRequestId: request.id, reason });
+  }
+
+  private secondsUntilNextLevel(level: number, createdAt: Date, now: Date): number {
+    const rule = ruleForLevel(level);
+    const engagesAt = createdAt.getTime() + rule.engagesAtMinutes * 60_000;
+    return Math.max(5, Math.ceil((engagesAt - now.getTime()) / 1000));
+  }
+
+  private async transition(
+    request: SupportRequestRecord,
+    to: SupportRequestRecord["state"],
+    options: {
+      actorType: "SYSTEM" | "CUSTOMER" | "EXPERT" | "ADMIN";
+      actorUserId?: string;
+      reason?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<SupportRequestRecord> {
+    assertTransition(request.state, to, options.actorType);
+    const updated = await this.deps.requests.applyTransition({
+      requestId: request.id,
+      fromState: request.state,
+      toState: to,
+      now: this.deps.clock.now(),
+      expectedVersion: request.version,
+      actorType: options.actorType,
+      actorUserId: options.actorUserId ?? null,
+      reason: options.reason ?? null,
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    });
+    if (!updated) {
+      throw new ConflictError("This request changed while it was being matched.", {
+        requestId: request.id,
+        expectedVersion: request.version,
+      });
+    }
+    return updated;
+  }
+
+  private async requireRequest(id: string): Promise<SupportRequestRecord> {
+    const request = await this.deps.requests.findById(id);
+    if (!request) throw new NotFoundError("SupportRequest", id);
+    return request;
+  }
+
+  private async requireOwnAttempt(actor: Actor, attemptId: string): Promise<MatchingAttemptRecord> {
+    const attempt = await this.deps.matching.findAttemptById(attemptId);
+    if (!attempt) throw new NotFoundError("MatchingAttempt", attemptId);
+    // Ownership from the row, never from the request.
+    if (!actor.expert || actor.expert.profileId !== attempt.expertProfileId) {
+      throw new ForbiddenError("respond to this offer", `attempt:${attemptId}`);
+    }
+    return attempt;
+  }
+
+  private closedOfferMessage(attempt: MatchingAttemptRecord): string {
+    switch (attempt.status) {
+      case "TIMED_OUT":
+        return "That offer ran out of time and has gone to another expert.";
+      case "DECLINED":
+        return "You already declined this one.";
+      case "ACCEPTED":
+        return "You already accepted this one.";
+      case "SUPERSEDED":
+      case "WITHDRAWN":
+        return "That offer was withdrawn before you answered.";
+      default:
+        return "That offer is no longer open.";
+    }
+  }
+}
+
+/** The category of a required skill, read off whichever candidate declared it. */
+function categoryOf(
+  skillId: string,
+  rows: readonly { candidate: { skills: readonly { skillId: string; categoryId: string }[] } }[],
+): string | undefined {
+  for (const row of rows) {
+    const match = row.candidate.skills.find((skill) => skill.skillId === skillId);
+    if (match) return match.categoryId;
+  }
+  return undefined;
+}
+
+export type { ExclusionReason, AvailabilityStatus };

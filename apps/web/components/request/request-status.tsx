@@ -43,7 +43,11 @@ const NARRATIVE: Record<
     detail: "We've offered your request to an expert.",
     tone: "info",
   },
-  ACCEPTED: { headline: "Expert found.", detail: "Setting up your session.", tone: "success" },
+  ACCEPTED: {
+    headline: "Expert found",
+    detail: "They have accepted and are being set up with your session.",
+    tone: "success",
+  },
   READY: { headline: "Your session is ready", detail: "Join when you are.", tone: "success" },
   IN_SESSION: { headline: "Session in progress", detail: "", tone: "success" },
   COMPLETED: { headline: "Session complete", detail: "", tone: "success" },
@@ -126,6 +130,34 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
           )}
         </div>
       </Alert>
+
+      {/*
+        Requirement 17's last step, from the customer's side.
+        
+        Deliberately thin: §39 says the product sells fast access to the right
+        expertise, not a directory. Enough to feel in good hands, not enough to
+        browse, compare, or ask for someone else — and there is no endpoint that
+        would return more.
+      */}
+      {request.matchedExpert && (
+        <section className="rounded-lg border border-available/25 bg-available-subtle p-4">
+          <h2 className="text-sm font-semibold text-ink">Who is helping you</h2>
+          <p className="mt-1.5 text-sm text-ink-muted">
+            We matched you with a Salesforce specialist
+            {request.matchedExpert.yearsExperience !== null &&
+              ` with ${String(request.matchedExpert.yearsExperience)} years of experience`}
+            {request.matchedExpert.verifiedSkillCount > 0 &&
+              `, ${String(request.matchedExpert.verifiedSkillCount)} of whose relevant skills our team has independently verified`}
+            {request.matchedExpert.sessionsCompleted > 0 &&
+              `. They have completed ${String(request.matchedExpert.sessionsCompleted)} sessions on the platform`}
+            .
+          </p>
+          <p className="mt-2 text-xs text-ink-subtle">
+            You did not have to pick anyone — that is the point. We chose based on what your problem
+            actually needs.
+          </p>
+        </section>
+      )}
 
       {/*
         What the classifier concluded, shown plainly. The customer never had to

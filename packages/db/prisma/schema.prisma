@@ -128,13 +128,29 @@ enum AttemptOrigin {
 }
 
 enum AttemptStatus {
+  /// Considered and rejected by a hard filter. Never offered, never will be.
+  /// Recorded anyway: "why B and not A" is unanswerable if A leaves no trace.
+  EXCLUDED
   RANKED
   OFFERED
   ACCEPTED
   DECLINED
   TIMED_OUT
   SUPERSEDED
+  /// The offer was pulled before the expert answered — they were suspended,
+  /// swept offline, or an admin re-assigned over it. Distinct from DECLINED,
+  /// which is a choice they made, and from TIMED_OUT, which is one they didn't.
   WITHDRAWN
+}
+
+/// Optional structure on a decline. Never required — an expert who has to
+/// justify saying no says yes to work they should not take.
+enum DeclineReason {
+  NOT_MY_EXPERTISE
+  NO_LONGER_AVAILABLE
+  TOO_COMPLEX
+  DURATION_NOT_SUITABLE
+  OTHER
 }
 
 enum SessionState {
@@ -639,12 +655,28 @@ model MatchingAttempt {
 
   status AttemptStatus @default(RANKED)
 
-  offeredAt       DateTime?
+  /// Why a hard filter rejected this expert, in the domain's own vocabulary.
+  /// Populated only for EXCLUDED. All failing reasons are recorded, not just
+  /// the first, so an admin sees everything wrong at once.
+  exclusionReasons String[] @default([])
+
+  offeredAt DateTime?
+  /// §15 — the offer deadline as a stored fact rather than a scheduled job.
+  ///
+  /// Requirement 8: a worker restart, a duplicate job delivery, or a browser
+  /// refresh must not buy the expert a fresh 60 seconds. The timeout handler
+  /// reads this column and refuses to act early; re-enqueuing recomputes
+  /// nothing.
+  offerExpiresAt  DateTime?
   respondedAt     DateTime?
   responseSeconds Int?
-  declineReason   String?
-  /// Required for ADMIN_FORCE_ASSIGN; enforced in the domain layer.
-  adminReason     String?
+
+  declineReason DeclineReason?
+  /// Free text, only meaningful alongside OTHER. Never required.
+  declineNote   String?
+
+  /// Required for ADMIN_ASSIGN and ADMIN_FORCE_ASSIGN; enforced in the domain layer.
+  adminReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

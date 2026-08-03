@@ -1,6 +1,6 @@
 # Running it locally
 
-Verified working on this machine as of Phase 4.
+Verified working on this machine as of Phase 5.
 
 ---
 
@@ -38,7 +38,8 @@ Then open:
 > ## **http://localhost:3000**
 
 `pnpm dev` runs both apps. Web is on **3000**; the worker has no HTTP surface — it boots, registers
-its six queues, classifies incoming requests, and sweeps stale-available experts offline.
+its six queues, classifies incoming requests, runs the dispatch loop (offer → 60s → next expert →
+15-minute deadline), and sweeps stale presence.
 
 **Health check:** http://localhost:3000/api/v1/health should return
 `{"status":"ok", ... "payment=mock payout=mock"}`.
@@ -123,6 +124,24 @@ close the tab, wait, reopen — you are offline, with an explanation, and you st
 turn it back on. That is deliberate: nothing puts an expert back in the dispatch pool without them
 saying so.
 
+### 5. The matching loop (Phase 5)
+
+This is the core product. You need a customer, **two** approved experts with real skills, and an
+admin — the setup is in [PHASE-5.md](PHASE-5.md) under the two-browser walkthrough.
+
+The one thing to know before you try: **an expert with no declared skills can never be matched.**
+Approval and availability are not enough; matching is on skills. Add Apex at ADVANCED or better on
+`/expert/skills` before expecting an Apex request to reach anyone.
+
+Shorten the offer window to watch a timeout without waiting a minute:
+
+```bash
+OFFER_WINDOW_SECONDS=20 pnpm dev
+```
+
+Then `/admin/requests` shows everything in flight, and clicking one shows every candidate, every
+score, and every exclusion reason — which is how you answer "why that expert and not the other one".
+
 ### Fastest full loop
 
 Two browser profiles (or one normal window + one incognito) side by side: applicant in one, admin in
@@ -143,7 +162,8 @@ the other. Approve in the admin window, refresh the applicant's dashboard, and w
 | `pnpm e2e:phase2`               | 41 HTTP checks against a running server                                                   |
 | `pnpm e2e:phase3`               | 27 HTTP checks — request intake, redaction, classification                                |
 | `pnpm e2e:phase4`               | 61 HTTP checks — availability, skills, the live presence sweep                            |
-| `pnpm e2e`                      | All three, in order                                                                       |
+| `pnpm e2e:phase5`               | 64 HTTP checks — matching, the offer loop, manual dispatch                                |
+| `pnpm e2e`                      | All four, in order                                                                        |
 | `pnpm pg:stop`                  | Stop the database                                                                         |
 
 ---

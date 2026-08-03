@@ -431,9 +431,26 @@ Weights live in `PlatformConfiguration` and snapshot onto `MatchingRun.weightsSn
 | -------- | -------- | ---------- | -------- | ----------- |
 | **0.40** | **0.20** | **0.15**   | **0.15** | **0.10**    |
 
-Ties break on longer idle time, then a per-request seeded shuffle.
+**Ranking is banded, then scored.** Candidates are ordered first by the _ordinal
+proficiency level of their weakest primary skill_, and only within a band by
+`finalScore`. Ties then break on longer idle time, then a per-request seeded hash.
 
-**§14 regression case** (A: 8y, 4.9, 10 min ago · B: 7y, 4.8, 3h ago) → **A 0.807, B 0.894**. B wins by 0.087, exactly as §14 intends, while A's real edge on rating and experience is preserved rather than discarded. This is a committed test, not an illustration.
+That structure replaced score-only ranking during Phase 5, because a test showed
+weights alone cannot deliver C3's intent. With `skill 0.40` against
+`rating 0.20 + experience 0.15 + fairness 0.15 + reliability 0.10`, a candidate
+maxed on every non-technical axis gains ≈0.21 while a whole proficiency level of
+primary skill is worth ≈0.13 — so a merely-INTERMEDIATE expert beat a verified
+EXPERT. Banding makes primary competence _dominate_ rather than merely
+contribute: no combination of rating, tenure, fairness or reliability can promote
+a candidate out of their band, while inside a band all of them still reorder
+similarly-qualified experts. Same lesson as the floor itself, one layer up:
+the guarantee has to be structural, not a weight someone can retune.
+
+The band uses the _declared_ level, not the verified-adjusted value, so
+verification helps within a band and can never be the thing that gets an expert
+work.
+
+**§14 regression case** (A: 8y, 4.9, 10 min ago · B: 7y, 4.8, 3h ago) → **A 0.719, B 0.806**. B wins by 0.087, exactly as §14 intends, while A's real edge on rating and experience is preserved rather than discarded. This is a committed test, not an illustration. _(The absolute values are lower than this section first estimated — the weakest-primary term in `skillScore` costs both candidates the same amount. The margin, which is what §14 is about, is unchanged.)_
 
 ### Stage 3 — Relaxation ladder, floored (C3)
 
@@ -495,10 +512,20 @@ One practical caveat worth designing around now: browsers throttle `setInterval`
 
 Agreed, and I'd go further than "useful" — during the first hundred customers this is the difference between a recoverable incident and a refund with an apology. It lands in **Phase 6**, alongside the automation it's insuring.
 
-- `POST /api/v1/admin/requests/:id/assign` → creates a `MatchingAttempt` with `origin = ADMIN_MANUAL`, `rank = null`, bypasses scoring, offers with the normal 60 s window.
-- `POST /api/v1/admin/requests/:id/force-assign` → skips the offer entirely, straight to `ACCEPTED`. For the case where an admin has already reached the expert out-of-band. Requires a typed reason.
-- `POST /api/v1/admin/requests/:id/extend-deadline` → pushes `matchDeadlineAt`.
-- All three write `AuditLog` and appear in the request timeline, so a manual intervention is visibly distinct from an algorithmic decision forever after.
+- `POST /api/v1/admin/requests/:id/dispatch` with `mode: "assign"` → creates a `MatchingAttempt` with `origin = ADMIN_ASSIGN`, `rank = null`, bypasses scoring, offers with the normal 60 s window. The expert must still be approved, available and present.
+- The same route with `mode: "force"` → `origin = ADMIN_FORCE_ASSIGN`. Overrides the competence filters, the ranking, and the availability requirement, so it can reach an expert who is OFFLINE. **It does not skip the offer.**
+- Both require a typed reason and write `AuditLog`, so a manual intervention is visibly distinct from an algorithmic decision forever after.
+
+> **Amended in Phase 2, implemented in Phase 5.** This section originally sent
+> force-assign straight to `ACCEPTED`. The user overruled that: _"Force Assign
+> requires reason and never bypasses acceptance."_ Consent is not the operator's
+> to give, however good their reason — an expert must never find themselves
+> committed to a session they did not agree to. Force Assign therefore overrides
+> every _rule_ and no _person_: it produces an ordinary offer with the ordinary
+> 60-second window and the ordinary accept/decline buttons, and the expert may
+> decline it like any other. There is no parameter, anywhere, that skips that.
+
+`extend-deadline` is **not built**. Requirement 7 fixes the 15-minute window at submission, and the only honest reason to extend it is a customer explicitly agreeing to wait longer — which is a conversation, not a button. Deferred rather than dropped.
 
 The admin queue view shows in-flight requests with elapsed time, current relaxation level, and every attempt with its outcome — so the operator can see _"3 experts timed out, currently at relaxation 2"_ and act, rather than guess.
 

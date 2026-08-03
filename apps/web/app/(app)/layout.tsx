@@ -30,7 +30,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     links.push({ href: "/expert-application", label: "Application" });
   }
   if (can(actor, "admin:read_experts")) {
-    links.push({ href: "/admin/experts", label: "Admin" });
+    links.push({ href: "/admin/experts", label: "Experts" });
+  }
+  if (can(actor, "admin:read_requests")) {
+    links.push({ href: "/admin/requests", label: "In flight" });
   }
 
   return (

@@ -32,6 +32,23 @@ export async function handleClassifyRequest(
     state: outcome.request.state,
     durationMs: Date.now() - started,
   });
+
+  // Classification is the only route into SEARCHING, so it is also where
+  // matching starts. `beginSearch` schedules the 15-minute deadline once and
+  // then dispatches the first offer.
+  //
+  // Called here rather than inside ClassificationService because the two have
+  // no business knowing about each other: classification's promise is "this
+  // request reaches SEARCHING with the best skills we could determine", and
+  // that promise holds whether or not a dispatcher exists.
+  if (outcome.request.state === "SEARCHING") {
+    const dispatch = await container.matching.beginSearch(payload.supportRequestId);
+    log.info("matching started", {
+      action: dispatch.action,
+      expertProfileId: dispatch.attempt?.expertProfileId,
+      relaxationLevel: dispatch.relaxationLevel,
+    });
+  }
 }
 
 /**

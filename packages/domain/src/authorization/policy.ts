@@ -42,6 +42,9 @@ export const PERMISSIONS = [
   "support_request:read_own",
   "support_request:cancel_own",
   "attachment:upload",
+  // Offers, from the expert side
+  "offer:read_own",
+  "offer:respond",
   // Administration
   "admin:read_experts",
   "admin:read_requests",
@@ -50,6 +53,13 @@ export const PERMISSIONS = [
   "admin:suspend_expert",
   "admin:reinstate_expert",
   "admin:read_users",
+  // Manual dispatch (§C5). Two permissions rather than one: overriding *who*
+  // gets offered is an everyday operational act, overriding the competence
+  // rules themselves is not, and a later role split should be able to separate
+  // them without touching call sites.
+  "matching:admin_assign",
+  "matching:admin_force_assign",
+  "matching:read_audit",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -81,6 +91,9 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
     case "admin:suspend_expert":
     case "admin:reinstate_expert":
     case "admin:read_users":
+    case "matching:admin_assign":
+    case "matching:admin_force_assign":
+    case "matching:read_audit":
       return hasRole(actor, "ADMIN");
 
     case "account:read_self":
@@ -121,6 +134,13 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
       return actor.expert?.status === "DRAFT";
 
     case "expert_workspace:access":
+      return canAccessExpertWorkspace(actor);
+
+    // An offer can only exist for an approved expert, but the check that
+    // matters is ownership of the *attempt row*, which the service does. This
+    // permission stops an unapproved account from reaching the endpoint at all.
+    case "offer:read_own":
+    case "offer:respond":
       return canAccessExpertWorkspace(actor);
 
     // Requires an application to exist, but NOT an approved one: a DRAFT

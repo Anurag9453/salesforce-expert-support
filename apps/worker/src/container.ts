@@ -1,23 +1,30 @@
 import {
   AnthropicProblemClassifier,
   ConsoleLogger,
+  PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
+  PrismaMatchingRepository,
   PrismaPricingRepository,
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
   RulesProblemClassifier,
 } from "@sfx/adapters";
+import { PrismaUnitOfWork } from "@sfx/adapters";
 import { parseServerEnv, type ServerEnv } from "@sfx/contracts";
 import { prisma } from "@sfx/db";
 import {
   ClassificationService,
+  DEFAULT_MATCHING_THRESHOLDS,
   ExpertAvailabilityService,
+  MatchingService,
   systemClock,
+  type JobScheduler,
   type Logger,
   type ProblemClassifier,
   type SupportRequestRepository,
   type TaxonomyRepository,
 } from "@sfx/domain";
+import { QUEUES } from "./queues.js";
 
 /**
  * Worker composition root.
@@ -38,6 +45,8 @@ export interface WorkerContainer {
    * expert-facing toggle and heartbeat.
    */
   readonly availability: ExpertAvailabilityService;
+  /** Stages 4 and 5 of matching. The worker is the only process that dispatches (D2). */
+  readonly matching: MatchingService;
 }
 
 /**
@@ -75,13 +84,21 @@ async function buildClassifier(
   });
 }
 
-export async function buildWorkerContainer(): Promise<WorkerContainer> {
+/**
+ * @param scheduler Built from the boss this process already started. Passing it
+ * in rather than constructing a second `SendOnlyBoss` matters: the worker both
+ * polls and enqueues, and a second connection pool for the same database would
+ * be waste plus one more thing to shut down cleanly.
+ */
+export async function buildWorkerContainer(scheduler: JobScheduler): Promise<WorkerContainer> {
   const env = parseServerEnv();
   const logger = new ConsoleLogger(env.LOG_LEVEL, { service: "worker" });
 
   const requests = new PrismaSupportRequestRepository(prisma);
   const taxonomy = new PrismaTaxonomyRepository(prisma);
   void new PrismaPricingRepository(prisma);
+  const matchingRepo = new PrismaMatchingRepository(prisma);
+  const candidates = new PrismaCandidateRepository(prisma);
 
   const classifier = await buildClassifier(env, logger, taxonomy);
   logger.info("classifier ready", { provider: classifier.name, model: env.CLASSIFIER_MODEL });
@@ -105,6 +122,26 @@ export async function buildWorkerContainer(): Promise<WorkerContainer> {
       logger,
       heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
       heartbeatIntervalSeconds: env.HEARTBEAT_INTERVAL_SECONDS,
+    }),
+    matching: new MatchingService({
+      requests,
+      matching: matchingRepo,
+      candidates,
+      auditLog: new PrismaUnitOfWork(prisma).auditLog,
+      scheduler,
+      clock: systemClock,
+      logger,
+      queues: {
+        dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
+        offerTimeout: QUEUES.OFFER_TIMEOUT,
+        matchingDeadline: QUEUES.MATCHING_DEADLINE,
+      },
+      thresholds: {
+        ...DEFAULT_MATCHING_THRESHOLDS,
+        offerWindowSeconds: env.OFFER_WINDOW_SECONDS,
+        heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+        offerPresenceGraceSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
+      },
     }),
   };
 }

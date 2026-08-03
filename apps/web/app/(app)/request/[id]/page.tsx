@@ -5,7 +5,7 @@ import { isDomainError } from "@sfx/domain";
 import { Badge, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
 import { RequestStatus } from "@/components/request/request-status";
 import { getContainer } from "@/lib/container";
-import { toRequestView } from "@/lib/request-view";
+import { loadMatchedExpert, toRequestView } from "@/lib/request-view";
 import { requireActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Your request" };
@@ -21,7 +21,13 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
     // Throws FORBIDDEN for anyone but the owner. A guessed id renders nothing.
     const record = await supportRequests.getForCustomer(actor, id);
     const tier = await pricing.findTierById(record.pricingTierId);
-    view = toRequestView(record, await attachments.listForRequest(id), tier?.durationMinutes ?? 30);
+    view = toRequestView(
+      record,
+      await attachments.listForRequest(id),
+      tier?.durationMinutes ?? 30,
+      new Date(),
+      await loadMatchedExpert(getContainer().prisma, record),
+    );
   } catch (error) {
     if (isDomainError(error) && (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")) {
       notFound();

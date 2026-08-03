@@ -233,6 +233,20 @@ export class FakeRequestRepository implements SupportRequestRepository {
   }
 
   /** Models `skipDuplicates` on (requestId, skillId, source). */
+  async assignExpert(params: {
+    requestId: string;
+    expertProfileId: string;
+    now: Date;
+  }): Promise<void> {
+    const current = this.rows.get(params.requestId);
+    if (!current) return;
+    this.rows.set(params.requestId, {
+      ...current,
+      assignedExpertId: params.expertProfileId,
+      updatedAt: params.now,
+    });
+  }
+
   async attachSkills(input: AttachSkillsInput): Promise<void> {
     const current = this.rows.get(input.requestId);
     if (!current) return;

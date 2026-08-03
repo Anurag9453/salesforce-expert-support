@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AvailabilityPanel } from "@/components/expert/availability-panel";
+import { OfferPanel } from "@/components/expert/offer-panel";
 import {
   Alert,
   Badge,
@@ -13,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui";
 import { toAvailabilityLogView, toAvailabilityView } from "@/lib/availability-view";
+import { toOfferView } from "@/lib/matching-view";
 import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
 
@@ -42,12 +44,29 @@ export default async function ExpertWorkspacePage() {
     redirect(actor.expert ? "/expert-application" : "/dashboard");
   }
 
-  const { expertAvailability, expertSkills } = getContainer();
-  const [availability, skills, history] = await Promise.all([
+  const { expertAvailability, expertSkills, matchingRepo, requests, pricing, clock } =
+    getContainer();
+  const [availability, skills, history, openOffer] = await Promise.all([
     expertAvailability.getOwn(actor),
     expertSkills.listOwn(actor),
     expertAvailability.history(actor, 10),
+    actor.expert ? matchingRepo.findOpenOfferForExpert(actor.expert.profileId) : null,
   ]);
+
+  // Server-rendered so an expert who reloads mid-offer sees the countdown
+  // already running, at the right number, rather than a blank card that fills
+  // in a poll later.
+  const offerRequest = openOffer ? await requests.findById(openOffer.supportRequestId) : null;
+  const offerTier = offerRequest ? await pricing.findTierById(offerRequest.pricingTierId) : null;
+  const offer =
+    openOffer && offerRequest
+      ? toOfferView({
+          attempt: openOffer,
+          request: offerRequest,
+          durationMinutes: offerTier?.durationMinutes ?? 30,
+          now: clock.now(),
+        })
+      : null;
 
   const verified = skills.filter((skill) => skill.verified).length;
 
@@ -62,6 +81,8 @@ export default async function ExpertWorkspacePage() {
         initial={toAvailabilityView(availability)}
         canGoAvailable={canGoAvailable(actor.expert?.status ?? "DRAFT")}
       />
+
+      <OfferPanel initial={offer} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -161,8 +182,8 @@ export default async function ExpertWorkspacePage() {
       </Card>
 
       <Alert tone="info" title="Coming next">
-        Being eligible means you are in the pool. Requests start arriving once the dispatch loop
-        lands in Phase 5.
+        Accepting an offer is where the Phase 5 loop ends. Realtime notification and sound land in
+        Phase 6; the session and video room in Phase 8.
       </Alert>
     </div>
   );

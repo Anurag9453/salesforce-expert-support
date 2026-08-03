@@ -85,6 +85,24 @@ export const requestViewSchema = z.object({
   skills: z.array(requestSkillViewSchema),
   attachments: z.array(attachmentViewSchema),
 
+  /**
+   * Who was matched, once someone has accepted.
+   *
+   * Deliberately thin. §39: the product sells fast access to the right
+   * expertise, not a directory of freelancers — so this is enough for the
+   * customer to feel they are in good hands and not enough to browse, compare,
+   * or ask for someone else. There is no expert name, no photo, no profile link,
+   * and no endpoint that would return one.
+   */
+  matchedExpert: z
+    .object({
+      yearsExperience: z.number().int().nullable(),
+      /** How many of their relevant skills our team has independently checked. */
+      verifiedSkillCount: z.number().int(),
+      sessionsCompleted: z.number().int(),
+    })
+    .nullable(),
+
   /** Server-computed: whether the customer may still cancel. */
   cancellable: z.boolean(),
   /** Seconds until the matching deadline; negative once it has passed. */

@@ -59,6 +59,15 @@ export const AVAILABILITY_TRANSITIONS: readonly AvailabilityTransition[] = [
     description: "Dispatcher offered a request. Phase 5.",
   },
   {
+    from: "OFFLINE",
+    to: "ON_OFFER",
+    sources: ["ADMIN"],
+    description:
+      "Admin force-assigned to an offline expert they had already reached out-of-band (§C5). " +
+      "ADMIN only — the dispatcher can never reach an offline expert, and the offer still " +
+      "has to be accepted.",
+  },
+  {
     from: "ON_OFFER",
     to: "AVAILABLE",
     sources: ["OFFER_RELEASED"],

@@ -86,6 +86,16 @@ const baseServerEnv = z.object({
    */
   HEARTBEAT_STALE_AFTER_SECONDS: z.coerce.number().int().positive().default(180),
 
+  // ── Phase 5: matching (§15) ───────────────────────────────────────────────
+  /**
+   * How long an expert has to answer an offer.
+   *
+   * 60 seconds is the product decision (§Q6). Configurable so the timeout path
+   * can be demonstrated and tested in seconds rather than minutes — the stored
+   * `offerExpiresAt` means shortening it cannot corrupt an offer already open.
+   */
+  OFFER_WINDOW_SECONDS: z.coerce.number().int().positive().max(600).default(60),
+
   // ── Phase 6: realtime ─────────────────────────────────────────────────────
   ABLY_API_KEY: z.string().min(1).optional(),
   REALTIME_PROVIDER: z.enum(["ably", "mock"]).default("mock"),

@@ -8,6 +8,7 @@ export * from "./clock.js";
 export * from "./repositories.js";
 export * from "./request-repositories.js";
 export * from "./expert-repositories.js";
+export * from "./matching-repositories.js";
 export * from "./rate-limiter.js";
 export * from "./payment.js";
 export * from "./payout.js";

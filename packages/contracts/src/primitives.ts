@@ -69,6 +69,56 @@ export const expertStatusSchema = z.enum([
 ]);
 export type ExpertStatus = z.infer<typeof expertStatusSchema>;
 
+/**
+ * Why a candidate was rejected by a matching filter (§C3).
+ *
+ * Here rather than in the domain for the same reason as
+ * `availabilityChangeSourceSchema`: the ports need to name it, and a port may
+ * not import a domain module. It is also persisted and rendered — an admin
+ * reading "why B and not A" is reading these codes.
+ */
+export const exclusionReasonSchema = z.enum([
+  "NOT_APPROVED",
+  "ACCOUNT_NOT_ACTIVE",
+  "NOT_AVAILABLE",
+  "PRESENCE_STALE",
+  "ALREADY_ON_OFFER",
+  "IN_SESSION",
+  "MISSING_PRIMARY_SKILL",
+  "PRIMARY_BELOW_FLOOR",
+  "INSUFFICIENT_SECONDARY_COVERAGE",
+  "RATING_BELOW_FLOOR",
+  "NO_LANGUAGE_OVERLAP",
+  "ALREADY_RESPONDED",
+  "IS_THE_CUSTOMER",
+]);
+export type ExclusionReason = z.infer<typeof exclusionReasonSchema>;
+
+export const attemptStatusSchema = z.enum([
+  "EXCLUDED",
+  "RANKED",
+  "OFFERED",
+  "ACCEPTED",
+  "DECLINED",
+  "TIMED_OUT",
+  "SUPERSEDED",
+  "WITHDRAWN",
+]);
+export type AttemptStatus = z.infer<typeof attemptStatusSchema>;
+
+export const attemptOriginSchema = z.enum(["ALGORITHMIC", "ADMIN_ASSIGN", "ADMIN_FORCE_ASSIGN"]);
+export type AttemptOrigin = z.infer<typeof attemptOriginSchema>;
+
+/** Requirement 9 — offered, never required. */
+export const declineReasonSchema = z.enum([
+  "NOT_MY_EXPERTISE",
+  "NO_LONGER_AVAILABLE",
+  "TOO_COMPLEX",
+  "DURATION_NOT_SUITABLE",
+  "OTHER",
+]);
+export type DeclineReasonCode = z.infer<typeof declineReasonSchema>;
+
 export const userRoleSchema = z.enum(["CUSTOMER", "EXPERT", "ADMIN"]);
 export type UserRole = z.infer<typeof userRoleSchema>;
 
