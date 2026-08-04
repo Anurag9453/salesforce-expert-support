@@ -26,6 +26,10 @@ pnpm pg:start
 No Docker and no Homebrew service: this runs a Postgres binary from inside the project on port
 **55432**, with its data in `.pgdata/` (gitignored). First run downloads the binary.
 
+Safe to run twice. If a server is already up it says so and exits 0 rather than failing on a port
+collision — then you can leave that terminal free. `pnpm pg:status` tells you whether a cluster
+exists _and_ whether a server is answering, which are different questions.
+
 **Terminal 2 — migrate, seed, and start.**
 
 ```bash
