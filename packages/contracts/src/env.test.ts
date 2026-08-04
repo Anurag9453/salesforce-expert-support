@@ -21,6 +21,9 @@ describe("server env", () => {
     expect(env.PAYMENT_PROVIDER).toBe("mock");
     expect(env.PAYOUT_PROVIDER).toBe("mock");
     expect(env.CLASSIFIER_PROVIDER).toBe("mock");
+    // Realtime is the exception: it defaults ON, because the postgres transport
+    // needs no credential and the product is much worse without it.
+    expect(env.REALTIME_PROVIDER).toBe("postgres");
     expect(env.CLASSIFIER_MODEL).toBe("claude-haiku-4-5");
   });
 
@@ -69,6 +72,14 @@ describe("server env", () => {
     expect(env.CLASSIFIER_TIMEOUT_MS).toBe(2500);
   });
 
+  it("refuses a realtime provider with no adapter", () => {
+    // Better a boot failure than a deployment that silently used something else.
+    expect(parseServerEnv({ ...valid, REALTIME_PROVIDER: "ably" }).REALTIME_PROVIDER).toBe("ably");
+    expect(() => parseServerEnv({ ...valid, REALTIME_PROVIDER: "pusher" })).toThrow(
+      EnvValidationError,
+    );
+  });
+
   it("defaults the offer window to 60 seconds and allows a short one", () => {
     expect(parseServerEnv(valid).OFFER_WINDOW_SECONDS).toBe(60);
     expect(parseServerEnv({ ...valid, OFFER_WINDOW_SECONDS: "8" }).OFFER_WINDOW_SECONDS).toBe(8);
@@ -76,6 +87,45 @@ describe("server env", () => {
     expect(() => parseServerEnv({ ...valid, OFFER_WINDOW_SECONDS: "6000" })).toThrow(
       EnvValidationError,
     );
+  });
+
+  describe("the relaxation schedule (§C3)", () => {
+    it("defaults to the launch schedule 0/90/180/360", () => {
+      expect(parseServerEnv(valid).RELAXATION_SCHEDULE_SECONDS).toEqual([0, 90, 180, 360]);
+    });
+
+    it("accepts a retuned schedule", () => {
+      expect(
+        parseServerEnv({ ...valid, RELAXATION_SCHEDULE_SECONDS: "0, 30, 60, 120" })
+          .RELAXATION_SCHEDULE_SECONDS,
+      ).toEqual([0, 30, 60, 120]);
+    });
+
+    it("insists level 0 engages immediately", () => {
+      // A first level that waits means a request nobody looks at for 30 seconds.
+      expect(() =>
+        parseServerEnv({ ...valid, RELAXATION_SCHEDULE_SECONDS: "30,60,90,120" }),
+      ).toThrow(EnvValidationError);
+    });
+
+    it("rejects a schedule that does not ascend", () => {
+      expect(() =>
+        parseServerEnv({ ...valid, RELAXATION_SCHEDULE_SECONDS: "0,180,90,360" }),
+      ).toThrow(EnvValidationError);
+    });
+
+    it("rejects a last level unreachable inside the matching window", () => {
+      // A rung nothing ever stands on is a rung that lies about the ladder.
+      expect(() =>
+        parseServerEnv({ ...valid, RELAXATION_SCHEDULE_SECONDS: "0,90,180,1200" }),
+      ).toThrow(EnvValidationError);
+    });
+
+    it("rejects the wrong number of levels", () => {
+      expect(() => parseServerEnv({ ...valid, RELAXATION_SCHEDULE_SECONDS: "0,90,180" })).toThrow(
+        EnvValidationError,
+      );
+    });
   });
 
   describe("presence timings (§C4)", () => {

@@ -1,6 +1,6 @@
 # Running it locally
 
-Verified working on this machine as of Phase 5.
+Verified working on this machine as of Phase 6.
 
 ---
 
@@ -142,6 +142,23 @@ OFFER_WINDOW_SECONDS=20 pnpm dev
 Then `/admin/requests` shows everything in flight, and clicking one shows every candidate, every
 score, and every exclusion reason — which is how you answer "why that expert and not the other one".
 
+### 6. Realtime (Phase 6) — the MVP loop
+
+Realtime is **on by default** and needs no API key: it runs on Postgres `LISTEN`/`NOTIFY` over
+Server-Sent Events. The worker logs `realtime ready {"provider":"postgres"}` at boot.
+
+The full two-browser walkthrough is in [PHASE-6.md](PHASE-6.md). The short version: with an expert's
+`/expert` tab open and **Enable sound** pressed, submitting a request from another browser puts the
+offer on their screen in about a second, with a tone and a browser notification — no refresh.
+
+Two things worth knowing:
+
+- **`REALTIME_PROVIDER=mock` turns delivery off entirely.** Every offer is still created, still
+  expires on time, and still appears on the dashboard within 15 seconds. That is the point: dispatch
+  never depends on notification.
+- **Realtime needs a process that stays alive.** `LISTEN` cannot be held by a serverless function, so
+  a Vercel-style deployment needs a hosted provider instead.
+
 ### Fastest full loop
 
 Two browser profiles (or one normal window + one incognito) side by side: applicant in one, admin in
@@ -163,7 +180,8 @@ the other. Approve in the admin window, refresh the applicant's dashboard, and w
 | `pnpm e2e:phase3`               | 27 HTTP checks — request intake, redaction, classification                                |
 | `pnpm e2e:phase4`               | 61 HTTP checks — availability, skills, the live presence sweep                            |
 | `pnpm e2e:phase5`               | 64 HTTP checks — matching, the offer loop, manual dispatch                                |
-| `pnpm e2e`                      | All four, in order                                                                        |
+| `pnpm e2e:phase6`               | 41 HTTP checks — realtime, isolation, reconnect, replay                                   |
+| `pnpm e2e`                      | All five, in order                                                                        |
 | `pnpm pg:stop`                  | Stop the database                                                                         |
 
 ---

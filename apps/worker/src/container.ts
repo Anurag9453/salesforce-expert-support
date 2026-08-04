@@ -1,6 +1,8 @@
 import {
   AnthropicProblemClassifier,
   ConsoleLogger,
+  NoopRealtimeBus,
+  PostgresRealtimeBus,
   PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
   PrismaMatchingRepository,
@@ -15,6 +17,7 @@ import { prisma } from "@sfx/db";
 import {
   ClassificationService,
   DEFAULT_MATCHING_THRESHOLDS,
+  DispatchNotifier,
   ExpertAvailabilityService,
   MatchingService,
   systemClock,
@@ -100,6 +103,31 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
   const matchingRepo = new PrismaMatchingRepository(prisma);
   const candidates = new PrismaCandidateRepository(prisma);
 
+  // `mock` installs a bus that records and delivers nothing. That is a runnable
+  // demonstration of requirement 10 rather than a stub: with it, every offer is
+  // still created, still expires on time, and is still visible on the dashboard.
+  const realtime = (() => {
+    switch (env.REALTIME_PROVIDER) {
+      case "mock":
+        return new NoopRealtimeBus();
+      case "postgres":
+        return new PostgresRealtimeBus(
+          (sql, params) => prisma.$queryRawUnsafe(sql, ...params),
+          logger,
+        );
+      case "ably":
+        // Deliberately a hard failure rather than a silent fallback: someone who
+        // set this expects a hosted provider, and quietly giving them something
+        // else is how a deployment ends up with the wrong assumptions.
+        throw new Error("REALTIME_PROVIDER=ably has no adapter yet. Use postgres or mock.");
+      default: {
+        const never: never = env.REALTIME_PROVIDER;
+        throw new Error(`Unsupported REALTIME_PROVIDER: ${String(never)}`);
+      }
+    }
+  })();
+  logger.info("realtime ready", { provider: realtime.name });
+
   const classifier = await buildClassifier(env, logger, taxonomy);
   logger.info("classifier ready", { provider: classifier.name, model: env.CLASSIFIER_MODEL });
 
@@ -131,6 +159,7 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
       scheduler,
       clock: systemClock,
       logger,
+      notifier: new DispatchNotifier({ realtime, clock: systemClock, logger }),
       queues: {
         dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
         offerTimeout: QUEUES.OFFER_TIMEOUT,
@@ -139,6 +168,7 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
       thresholds: {
         ...DEFAULT_MATCHING_THRESHOLDS,
         offerWindowSeconds: env.OFFER_WINDOW_SECONDS,
+        relaxationScheduleSeconds: env.RELAXATION_SCHEDULE_SECONDS,
         heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
         offerPresenceGraceSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
       },

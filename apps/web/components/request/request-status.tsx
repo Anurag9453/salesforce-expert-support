@@ -2,19 +2,23 @@
 
 import type { RequestView } from "@sfx/contracts";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert, Badge, Button } from "@/components/ui";
+import { reportTiming, useRealtime } from "@/lib/use-realtime";
 
 /**
  * Live status for an in-flight request (§6, §38).
  *
- * Phase 6 replaces the polling here with realtime. Until then this refreshes on
- * an interval, which is honest for a status page and is explicitly not the
- * dispatch mechanism — §17 rules out polling for dispatch, not for a customer
- * watching their own request.
+ * Live over SSE since Phase 6 (requirement 5). The customer watches
+ * SEARCHING → OFFERED → ACCEPTED / NO_EXPERT_FOUND without touching anything.
  *
- * It stops polling as soon as the request reaches a state that will not change
- * on its own, so an abandoned tab does not sit hitting the server all day.
+ * Same discipline as the expert's offer card: a signal means "re-check", never
+ * "here is the new state". So a duplicate signal costs one extra fetch and
+ * changes nothing, and a reconnect after being offline shows what is true now
+ * rather than replaying what was missed.
+ *
+ * The subscription stops once the request reaches a state that will not change on
+ * its own, so an abandoned tab is not holding a stream open all day.
  */
 
 const LIVE_STATES = new Set(["CREATED", "CLASSIFYING", "SEARCHING", "OFFERED"]);
@@ -71,16 +75,33 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
   const [error, setError] = useState<string | null>(null);
 
   const live = LIVE_STATES.has(request.state);
+  const seenStates = useRef(new Set<string>([initial.state]));
 
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(async () => {
-      const response = await fetch(`/api/v1/requests/${request.id}`);
+  const reconcile = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/v1/requests/${initial.id}`);
       const body = await response.json();
-      if (body.ok) setRequest(body.data);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [live, request.id]);
+      if (!body.ok) return;
+      const next = body.data as RequestView;
+      setRequest(next);
+
+      // Requirement 16, point 8 — the only place that knows when the customer
+      // could actually *see* the answer. Reported once per state, so a
+      // reconnect-driven refetch does not inflate the sample.
+      if (!seenStates.current.has(next.state)) {
+        seenStates.current.add(next.state);
+        reportTiming("customer_reconciled", {
+          supportRequestId: next.id,
+          state: next.state,
+          observedLatencyMs: Math.max(0, Date.now() - Date.parse(next.stateEnteredAt)),
+        });
+      }
+    } catch {
+      // The stream or the fallback poll will try again.
+    }
+  }, [initial.id]);
+
+  const realtimeStatus = useRealtime(reconcile, { enabled: live });
 
   const narrative = NARRATIVE[request.state] ?? {
     headline: request.state,
@@ -123,7 +144,7 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
                 className="inline-block size-1.5 animate-pulse rounded-full bg-accent"
                 aria-hidden="true"
               />
-              Updating automatically
+              {realtimeStatus === "live" ? "Updating live" : "Updating automatically"}
               {request.secondsUntilDeadline > 0 &&
                 ` · about ${Math.ceil(request.secondsUntilDeadline / 60)} min left in the matching window`}
             </p>

@@ -65,6 +65,32 @@
 
 **Realtime remains a delivery optimisation, never a source of truth.** Every screen that consumes a realtime event can also derive its state from a plain `GET`. Dispatch correctness lives in Postgres.
 
+> **Phase 6 took that literally and it changed the transport.** A realtime event
+> publishes a _type and nothing else_ — `{"type":"offer.opened"}` — and the client's
+> only response is to re-fetch. Because a dropped or duplicated message then costs
+> latency and nothing else, the transport became a cost/benefit question rather
+> than a correctness one, and **Postgres `LISTEN`/`NOTIFY` over Server-Sent
+> Events** wins it: no signup, no API key, no second failure domain, and the whole
+> loop is demonstrable by anyone who can run the app.
+>
+> The empty payload is the mechanism, not an omission. It is what makes replay
+> idempotent, makes "reconcile rather than trust" the only thing a client _can_
+> do, and guarantees no score, rank, other expert's identity or customer text ever
+> reaches the wire. A test asserts it for every event published.
+>
+> Channel authorization works the same way: the SSE endpoint computes the allowed
+> channels from the **session**, and the client never names one — so there is no
+> parameter to tamper with. The channels are keyed on identity
+> (`expert:<id>`, `customer:<id>`) rather than on a list of rows, because an
+> authorization set derived from mutable rows is only correct at the instant it is
+> computed and a long-lived stream outlives that instant.
+>
+> **The cost, written down rather than discovered later:** `LISTEN` needs a
+> long-lived connection, which a serverless function cannot hold. A container or a
+> VM is fine; a serverless web tier needs a hosted adapter, which is a
+> composition-root change because `RealtimeBus` is a port. `REALTIME_PROVIDER=ably`
+> currently throws at boot rather than silently falling back.
+
 ---
 
 ## 2. Providers
@@ -76,7 +102,7 @@
 | ORM                   | Prisma; raw SQL for the candidate query only       | Fixed                    |
 | Auth                  | **Better Auth**                                    | **Approved**             |
 | Jobs/timers           | pg-boss + dedicated worker                         | Fixed                    |
-| Realtime              | Ably                                               | Fixed                    |
+| Realtime              | **Postgres LISTEN/NOTIFY over SSE** (was: Ably)    | Changed in Phase 6       |
 | **Payments**          | **Undecided — `PaymentGateway` port, mock in dev** | **Deferred to Phase 7a** |
 | **Payouts**           | **Undecided — separate `PayoutProvider` port**     | **Deferred to Phase 7b** |
 | Video/screen-share    | Daily.co                                           | Fixed                    |
@@ -374,6 +400,31 @@ A single `transition()` function is the only code path that mutates `state`. It 
 
 ## 5. Matching algorithm
 
+### The line that divides the whole engine
+
+> **Primary skill is an eligibility constraint. Secondary skills are ranking
+> evidence.**
+>
+> A candidate who does not hold every **primary** skill at the floor is not a
+> candidate — they never enter the ranking, however strong they are elsewhere
+> (§C3). That is a statement about competence to do the job at all.
+>
+> **Secondary** skills never gate anything. They are evidence about _how good_ a
+> qualified candidate is, and they act exclusively through `skillScore`: an expert
+> covering more of the supporting skills ranks higher, one covering none ranks
+> lower, and neither is excluded. There is no relaxation level at which a missing
+> secondary skill disqualifies anyone.
+>
+> This was learned twice, expensively. Secondary coverage began as a hard filter
+> at 1.0, was reduced to 0.25, and is now 0 — and on both of the first two
+> settings it excluded exactly the right person, because the taxonomy is
+> finer-grained than expertise is. "Has not separately declared `soql-sosl`" was
+> never a good reason to refuse someone a SOQL-in-a-trigger problem.
+>
+> The general rule that follows: a **filter** answers _"could this person do this
+> at all?"_. Everything else — breadth, rating, tenure, fairness, reliability —
+> belongs in the score, where it can be outweighed.
+
 ### Stage 1 — Hard filters
 
 An expert is eligible only if **all** hold:
@@ -387,6 +438,8 @@ An expert is eligible only if **all** hold:
 7. Shrunk rating ≥ `minRating` (default 3.5), waived below 3 rated sessions
 8. Language overlap, if the customer specified one
 
+Note what is **not** on that list: secondary-skill coverage. See the box above.
+
 ### The primary-skill floor (C3)
 
 This is the change your Copado example demanded, and it's a filter rather than a discount:
@@ -399,7 +452,9 @@ minPrimaryProficiency  =  ADVANCED       at relaxation 0–1
 
 An expert missing _any_ primary skill, or holding one below the floor, is **not a candidate** — they never appear in the ranking at all, regardless of how strong they are elsewhere.
 
-`skillScore` also changes shape so a weak link stays visible when candidates _do_ qualify:
+`skillScore` also changes shape so a weak link stays visible when candidates _do_ qualify. This is
+also the **only** place secondary skills act: they are ranking evidence, weighted at 0.5 against a
+primary's 1.0, and they never gate eligibility.
 
 ```
 weightedAvg = Σ(weightᵢ × proficiencyᵢ) / Σ(weightᵢ)     primary 1.0, secondary 0.5
@@ -454,13 +509,30 @@ work.
 
 ### Stage 3 — Relaxation ladder, floored (C3)
 
-| Level | At     | Relaxes                                           | Never relaxes              |
-| ----- | ------ | ------------------------------------------------- | -------------------------- |
-| 0     | t+0    | —                                                 | primary ≥ ADVANCED         |
-| 1     | ~t+4m  | rating floor; secondary-skill coverage → ≥50%     | primary ≥ ADVANCED         |
-| 2     | ~t+8m  | primary floor → INTERMEDIATE; language preference | **primary ≥ INTERMEDIATE** |
-| 3     | ~t+12m | widen secondary skills to parent category         | **primary ≥ INTERMEDIATE** |
-| —     | t+15m  | `NO_EXPERT_FOUND`                                 | —                          |
+| Level | At    | Relaxes                                                        | Never relaxes              |
+| ----- | ----- | -------------------------------------------------------------- | -------------------------- |
+| 0     | t+0   | —                                                              | primary ≥ ADVANCED         |
+| 1     | t+90s | rating floor                                                   | primary ≥ ADVANCED         |
+| 2     | t+3m  | primary floor → INTERMEDIATE; language preference              | **primary ≥ INTERMEDIATE** |
+| 3     | t+6m  | a category sibling may stand in for a secondary _when scoring_ | **primary ≥ INTERMEDIATE** |
+| —     | t+15m | `NO_EXPERT_FOUND`                                              | —                          |
+
+**Timings retuned in Phase 6** from 0/4/8/12 minutes. The original shape suits a
+deep bench and not a thin one: a request that exhausts three qualified candidates
+in ten seconds would wait four minutes before an INTERMEDIATE expert was even
+considered, and on a launch roster of 10–20 experts (Q14) that is most requests.
+Maximum relaxation is now reached at six minutes, leaving nine to find someone.
+Configuration-driven via `RELAXATION_SCHEDULE_SECONDS`, snapshotted onto every run.
+
+**Secondary-skill coverage is no longer a filter at any level** (Phase 6). It was
+1.0 at level 0 as designed, then 0.25, and is now 0. Twice it excluded exactly the
+right person: at 1.0 nothing matched at level 0 at all, and at 0.25 an expert
+holding `apex: ADVANCED` waited a measured 180 seconds for a batch-Apex request
+because they had not separately declared `batch-apex`. The taxonomy is
+finer-grained than expertise is. Secondary alignment remains an important part of
+`skillScore` and therefore of ranking — a candidate covering more of the
+supporting skills still ranks higher, and one covering none still ranks lower.
+The **primary**-skill floor is the hard gate, and it is the only one.
 
 There is no level at which "any available Salesforce expert" becomes a candidate. Your framing is the right one and I've encoded it literally: **a wrong expert is worse than no expert**, because the product's entire promise is that we chose correctly. An honest `NO_EXPERT_FOUND` costs one refund and one apology. A CPQ pricing-rule question routed to a Flow admin costs the brand.
 
@@ -613,20 +685,20 @@ Two payoffs. The matching engine is testable as pure functions — the entire §
 
 Each phase ends with the §40 gate: tests, lint, `tsc --noEmit`, migrations verified against a fresh database, both apps boot, plus a written summary of what shipped, files changed, assumptions made, and open TODOs.
 
-| Phase                 | Scope                                                                                                                                                                                                                                                          | Exit criteria                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **1 — Foundation**    | Turborepo · Next.js · TS strict · Prisma + Neon · pg-boss · Better Auth · CI · design system · `env` validation · Sentry                                                                                                                                       | `pnpm verify` green; migrations apply to empty DB; both apps boot                                                   |
-| **2 — Accounts**      | Register/login (email + Google) · profiles · RBAC · expert onboarding DRAFT→SUBMITTED · admin approval queue                                                                                                                                                   | Expert created → submitted → approved → only then eligible                                                          |
-| **3 — Requests**      | Customer dashboard · guided request form · taxonomy + seed · attachments (R2 presigned) · lifecycle to `SEARCHING` · secret-scan warnings · **`MockPaymentGateway.authorize()`**                                                                               | Request with attachments reaches `SEARCHING`; history written; mock authorization recorded                          |
-| **4 — Availability**  | Expert dashboard · availability toggle · **heartbeat + sweep job (C4)** · expert skill management                                                                                                                                                              | Closing the tab marks the expert offline within 3 min; API is mobile-shaped                                         |
-| **5 — Matching** ⭐   | Filters · **primary-skill floor (C3)** · scoring · ranking · fairness · `MatchingRun`/`MatchingAttempt` · offer lifecycle · timeout · next-expert routing · floored relaxation ladder                                                                          | **Every §35 scenario tested**, incl. concurrency. §14 example and the Copado disqualification are regression tests. |
-| **6 — Dispatch** ⭐⭐ | Ably · expert offer UI · customer "Finding the right Salesforce expert…" → "Expert found" · accept/decline/timeout · browser push + sound + email fallback · **minimal admin ops console: in-flight queue, manual assign, force-assign, extend deadline (C5)** | **MVP CHECKPOINT — see below**                                                                                      |
-| **7a — Payments**     | Chosen gateway · authorize-then-capture · webhook idempotency · refunds · ledger writes (Tier 2)                                                                                                                                                               | Duplicate webhook provably a no-op; authorization voided on `NO_EXPERT_FOUND`                                       |
-| **7b — Payouts**      | `PayoutProvider` · recipient onboarding · payout execution · cross-border path                                                                                                                                                                                 | Blocked on Q3                                                                                                       |
-| **8 — Sessions**      | Session creation · Daily rooms + scoped tokens · join/leave events · completion → capture                                                                                                                                                                      | Full call with screen share; capture gated on real participation                                                    |
-| **9 — Reviews**       | Resolution status · 1–5 rating · review · expert notes (private vs shared) · metric recompute · **earnings UI**                                                                                                                                                | Ratings feed `ratingScore` on the next match                                                                        |
-| **10 — Admin**        | Full dashboard: matching inspection with per-component scores and offer timeline · payments · categories · platform metrics                                                                                                                                    | For any request, an admin can answer "why B and not A" from the UI alone                                            |
-| **11 — Hardening**    | Rate limits · security review · structured logging · monitoring · backups **+ an actual restore drill** · load test on the candidate query · a11y · SEO                                                                                                        | Restore performed, not merely configured                                                                            |
+| Phase                 | Scope                                                                                                                                                                                                                                                                                                | Exit criteria                                                                                                       |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **1 — Foundation**    | Turborepo · Next.js · TS strict · Prisma + Neon · pg-boss · Better Auth · CI · design system · `env` validation · Sentry                                                                                                                                                                             | `pnpm verify` green; migrations apply to empty DB; both apps boot                                                   |
+| **2 — Accounts**      | Register/login (email + Google) · profiles · RBAC · expert onboarding DRAFT→SUBMITTED · admin approval queue                                                                                                                                                                                         | Expert created → submitted → approved → only then eligible                                                          |
+| **3 — Requests**      | Customer dashboard · guided request form · taxonomy + seed · attachments (R2 presigned) · lifecycle to `SEARCHING` · secret-scan warnings · **`MockPaymentGateway.authorize()`**                                                                                                                     | Request with attachments reaches `SEARCHING`; history written; mock authorization recorded                          |
+| **4 — Availability**  | Expert dashboard · availability toggle · **heartbeat + sweep job (C4)** · expert skill management                                                                                                                                                                                                    | Closing the tab marks the expert offline within 3 min; API is mobile-shaped                                         |
+| **5 — Matching** ⭐   | Filters · **primary-skill floor (C3)** · scoring · ranking · fairness · `MatchingRun`/`MatchingAttempt` · offer lifecycle · timeout · next-expert routing · floored relaxation ladder                                                                                                                | **Every §35 scenario tested**, incl. concurrency. §14 example and the Copado disqualification are regression tests. |
+| **6 — Dispatch** ⭐⭐ | Realtime (Postgres LISTEN/NOTIFY over SSE) · expert offer UI · customer "Finding the right Salesforce expert…" → "Expert found" · accept/decline/timeout · browser push + sound + email fallback · **minimal admin ops console: in-flight queue, manual assign, force-assign, extend deadline (C5)** | **MVP CHECKPOINT — see below**                                                                                      |
+| **7a — Payments**     | Chosen gateway · authorize-then-capture · webhook idempotency · refunds · ledger writes (Tier 2)                                                                                                                                                                                                     | Duplicate webhook provably a no-op; authorization voided on `NO_EXPERT_FOUND`                                       |
+| **7b — Payouts**      | `PayoutProvider` · recipient onboarding · payout execution · cross-border path                                                                                                                                                                                                                       | Blocked on Q3                                                                                                       |
+| **8 — Sessions**      | Session creation · Daily rooms + scoped tokens · join/leave events · completion → capture                                                                                                                                                                                                            | Full call with screen share; capture gated on real participation                                                    |
+| **9 — Reviews**       | Resolution status · 1–5 rating · review · expert notes (private vs shared) · metric recompute · **earnings UI**                                                                                                                                                                                      | Ratings feed `ratingScore` on the next match                                                                        |
+| **10 — Admin**        | Full dashboard: matching inspection with per-component scores and offer timeline · payments · categories · platform metrics                                                                                                                                                                          | For any request, an admin can answer "why B and not A" from the UI alone                                            |
+| **11 — Hardening**    | Rate limits · security review · structured logging · monitoring · backups **+ an actual restore drill** · load test on the candidate query · a11y · SEO                                                                                                                                              | Restore performed, not merely configured                                                                            |
 
 ### ⭐⭐ Phase 6 — the MVP checkpoint
 
@@ -658,13 +730,13 @@ Things that are correct for local development and **wrong in production**. Each 
 the right call sites, so the fix is a swap in the composition root rather than an audit of every
 route. None of these may ship to a public URL unresolved.
 
-| #      | Gate                                | Current state                                                                                               | What must change                                                                                                                                                    | Added   |
-| ------ | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| **G1** | **Rate limiting on a shared store** | `InMemoryRateLimiter` — per-process fixed window. Applied to auth, request creation, and attachment upload. | Back `RateLimiter` with Redis/Upstash. The in-memory limiter is per-instance: with N instances an attacker gets N× the limit, and every deploy resets the counters. | Phase 3 |
-| **G2** | **Object storage**                  | `LocalFileStorage` — signed URLs, path containment, private reads, but files on the app server's disk.      | Swap for the R2/S3 adapter. Local disk does not survive a redeploy and does not exist on serverless.                                                                | Phase 3 |
-| **G3** | **Content Security Policy**         | Other security headers are live; CSP is not.                                                                | Add CSP once the provider origins (Ably, Daily, the payment gateway) are known.                                                                                     | Phase 1 |
-| **G4** | **Error reporting**                 | Not wired.                                                                                                  | Sentry, once a DSN exists.                                                                                                                                          | Phase 1 |
-| **G5** | **`embedded-postgres`**             | Pinned dev-only dependency, beta-tagged.                                                                    | Managed Postgres (Neon) in every deployed environment. Never ships.                                                                                                 | Phase 1 |
+| #      | Gate                                | Current state                                                                                               | What must change                                                                                                                                                                   | Added   |
+| ------ | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **G1** | **Rate limiting on a shared store** | `InMemoryRateLimiter` — per-process fixed window. Applied to auth, request creation, and attachment upload. | Back `RateLimiter` with Redis/Upstash. The in-memory limiter is per-instance: with N instances an attacker gets N× the limit, and every deploy resets the counters.                | Phase 3 |
+| **G2** | **Object storage**                  | `LocalFileStorage` — signed URLs, path containment, private reads, but files on the app server's disk.      | Swap for the R2/S3 adapter. Local disk does not survive a redeploy and does not exist on serverless.                                                                               | Phase 3 |
+| **G3** | **Content Security Policy**         | Other security headers are live; CSP is not.                                                                | Add CSP once the provider origins (Daily, the payment gateway) are known. Realtime needs no extra origin — it is same-origin SSE — but the policy must permit `text/event-stream`. | Phase 1 |
+| **G4** | **Error reporting**                 | Not wired.                                                                                                  | Sentry, once a DSN exists.                                                                                                                                                         | Phase 1 |
+| **G5** | **`embedded-postgres`**             | Pinned dev-only dependency, beta-tagged.                                                                    | Managed Postgres (Neon) in every deployed environment. Never ships.                                                                                                                | Phase 1 |
 
 **G1 in detail.** Rate limiting was originally scheduled for Phase 11 hardening. That was wrong:
 sign-up, sign-in, and request submission are live routes from Phases 2 and 3, and request submission

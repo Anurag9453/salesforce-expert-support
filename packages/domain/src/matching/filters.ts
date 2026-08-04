@@ -43,6 +43,9 @@ export const EXCLUSION_COPY: Record<ExclusionReason, string> = {
   IN_SESSION: "Currently in a session.",
   MISSING_PRIMARY_SKILL: "Has not declared a primary skill this request needs.",
   PRIMARY_BELOW_FLOOR: "Primary-skill proficiency is below the competence floor.",
+  // Retained in the vocabulary but unreachable while `secondaryCoverage` is 0 at
+  // every level. Kept because historical `MatchingAttempt` rows still carry it and
+  // the admin audit has to be able to render them.
   INSUFFICIENT_SECONDARY_COVERAGE: "Covers too few of the secondary skills.",
   RATING_BELOW_FLOOR: "Rating is below the minimum for this relaxation level.",
   NO_LANGUAGE_OVERLAP: "No language in common with the customer.",
@@ -150,6 +153,14 @@ export function filterCompetence(
   if (missingPrimary) reasons.push("MISSING_PRIMARY_SKILL");
   if (belowFloor) reasons.push("PRIMARY_BELOW_FLOOR");
 
+  // Secondary-skill coverage.
+  //
+  // `secondaryCoverage` is 0 at every level, so this never excludes anyone today
+  // — secondary alignment is a *ranking* signal carried by `skillScore`, not an
+  // eligibility one. The branch is retained rather than deleted because the lever
+  // is real configuration and because deleting it would delete the reasoning; see
+  // `RelaxationRule.secondaryCoverage` for the two occasions on which promoting
+  // this to a hard gate excluded exactly the right person.
   const secondaries = required.filter((skill) => !skill.isPrimary);
   if (secondaries.length > 0 && rule.secondaryCoverage > 0) {
     const covered = secondaries.filter(

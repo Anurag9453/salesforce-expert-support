@@ -72,7 +72,17 @@ async function step(name, fn) {
 await step("format", async () => (await run("pnpm", ["run", "format:check"])).code === 0);
 await step("lint", async () => (await run("pnpm", ["turbo", "run", "lint"])).code === 0);
 await step("typecheck", async () => (await run("pnpm", ["turbo", "run", "typecheck"])).code === 0);
-await step("test", async () => (await run("pnpm", ["turbo", "run", "test"])).code === 0);
+
+// `test` runs in one of two places depending on mode.
+//
+// `--quick` promises static checks and no database, so it runs the suite here and
+// accepts that the database-backed concurrency test cannot participate. A full
+// run defers it until after Postgres is confirmed up — see the longer note there.
+if (QUICK) {
+  await step("test (no database — DB-backed suites excluded)", async () => {
+    return (await run("pnpm", ["turbo", "run", "test"], { env: { SKIP_DB_TESTS: "1" } })).code === 0;
+  });
+}
 
 // ── Database + boot checks ───────────────────────────────────────────────────
 
@@ -130,6 +140,22 @@ if (!QUICK) {
       }
     });
   }
+
+  /**
+   * Unit and integration tests, once a database exists.
+   *
+   * This deliberately runs *after* the Postgres step rather than alongside the
+   * other static checks. Phase 5 added a concurrency test that talks to a real
+   * database — the `one_open_offer_per_expert` partial unique index cannot be
+   * tested any other way — and with `test` running before Postgres was started,
+   * that suite failed whenever the server happened not to already be up. It
+   * passed for weeks because it always was.
+   *
+   * The alternative was to let the suite skip itself when it cannot connect,
+   * which is worse: a gate that silently omits its most important assertion
+   * reads exactly like a gate that passed.
+   */
+  await step("test", async () => (await run("pnpm", ["turbo", "run", "test"])).code === 0);
 
   /**
    * "Migrations apply to a fresh database" — proven WITHOUT destroying anything.

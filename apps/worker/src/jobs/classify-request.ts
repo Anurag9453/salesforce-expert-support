@@ -1,4 +1,5 @@
 import { prisma } from "@sfx/db";
+import { logTiming, TIMING_POINTS } from "@sfx/domain";
 import type { WorkerContainer } from "../container.js";
 import { QUEUES } from "../queues.js";
 
@@ -24,6 +25,15 @@ export async function handleClassifyRequest(
   });
 
   const outcome = await container.classification.classify(payload.supportRequestId);
+
+  logTiming(container.logger, TIMING_POINTS.CLASSIFICATION_COMPLETED, {
+    supportRequestId: payload.supportRequestId,
+    classified: outcome.classified,
+    // Requirement 16, point 2. This is the one stage with a network call in it,
+    // so it is the first place to look if perceived latency is bad.
+    durationMs: Date.now() - started,
+    sinceSubmittedMs: Date.now() - outcome.request.createdAt.getTime(),
+  });
 
   log.info("classification complete", {
     classified: outcome.classified,

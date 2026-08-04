@@ -96,9 +96,63 @@ const baseServerEnv = z.object({
    */
   OFFER_WINDOW_SECONDS: z.coerce.number().int().positive().max(600).default(60),
 
+  /**
+   * When each relaxation level becomes available, in seconds from submission.
+   *
+   * Four ascending values, comma-separated. The default — `0,90,180,360` — is
+   * tuned for a small launch roster: a thin bench runs out of level-0 candidates
+   * in seconds, and making the customer wait four minutes for a level change
+   * they cannot see is the worst possible use of a fifteen-minute promise.
+   *
+   * Tuning this changes how *soon* the search widens, never how *far*. The
+   * primary-skill floor is enforced separately and cannot be configured at all.
+   */
+  RELAXATION_SCHEDULE_SECONDS: z
+    .string()
+    .default("0,90,180,360")
+    .transform((value, ctx) => {
+      const parts = value.split(",").map((part) => Number(part.trim()));
+      if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n) || n < 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "must be four non-negative seconds, comma-separated, e.g. 0,90,180,360",
+        });
+        return z.NEVER;
+      }
+      if (parts[0] !== 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "level 0 must engage immediately, so the first value must be 0",
+        });
+        return z.NEVER;
+      }
+      for (let i = 1; i < parts.length; i++) {
+        if ((parts[i] ?? 0) <= (parts[i - 1] ?? 0)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "values must strictly ascend — a later level cannot engage earlier",
+          });
+          return z.NEVER;
+        }
+      }
+      return parts as [number, number, number, number];
+    }),
+
   // ── Phase 6: realtime ─────────────────────────────────────────────────────
   ABLY_API_KEY: z.string().min(1).optional(),
-  REALTIME_PROVIDER: z.enum(["ably", "mock"]).default("mock"),
+  /**
+   * `postgres` — LISTEN/NOTIFY over the connection we already hold. No signup, no
+   * API key, no second failure domain. Needs a process that can keep a long-lived
+   * connection open, which rules out a purely serverless web tier.
+   *
+   * `mock` — delivers nothing. Not a stub: a runnable demonstration that dispatch
+   * does not depend on delivery (requirement 10).
+   *
+   * `ably` — reserved. The `RealtimeBus` port exists so this is a composition-root
+   * change, but there is no adapter yet and shipping an untested one would be
+   * worse than shipping none.
+   */
+  REALTIME_PROVIDER: z.enum(["postgres", "ably", "mock"]).default("postgres"),
 
   // ── Phase 7a/7b: payments & payouts — provider undecided (Q3) ─────────────
   PAYMENT_PROVIDER: z.enum(["mock"]).default("mock"),
@@ -127,6 +181,23 @@ export const serverEnvSchema = pairedCredentials(
 ).superRefine((value, ctx) => {
   // A ping slower than the timeout sweeps everyone who is genuinely present.
   // Cheap to get wrong by editing one of the two, so it is checked at boot.
+  // The last relaxation level has to be reachable inside the matching window,
+  // or the ladder has a rung nothing ever stands on.
+  //
+  // Defensive read. When the inner transform rejects the value Zod still runs
+  // this refinement, and the field holds Zod's INVALID sentinel rather than an
+  // array — so an unguarded `.at()` throws a TypeError and the caller gets that
+  // instead of the readable EnvValidationError listing what was actually wrong.
+  const schedule: unknown = value.RELAXATION_SCHEDULE_SECONDS;
+  const lastLevelAt = Array.isArray(schedule) ? (schedule.at(-1) as number) : 0;
+  if (lastLevelAt >= 15 * 60) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["RELAXATION_SCHEDULE_SECONDS"],
+      message:
+        "the last level must engage well inside the 15-minute matching window, or it is unreachable.",
+    });
+  }
   if (value.HEARTBEAT_INTERVAL_SECONDS >= value.HEARTBEAT_STALE_AFTER_SECONDS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

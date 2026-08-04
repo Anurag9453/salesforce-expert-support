@@ -18,9 +18,16 @@ import type {
 import type { AuditLogRepository } from "../ports/repositories.js";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../shared/errors.js";
 import { assertTransition } from "../support-requests/state-machine.js";
+import { TIMING_POINTS, type DispatchNotifier } from "./dispatch-events.js";
 import type { ExclusionReason } from "./filters.js";
 import { rankCandidates, type RankingResult } from "./rank.js";
-import { MAX_RELAXATION_LEVEL, ruleForLevel, scheduledLevel } from "./relaxation.js";
+import {
+  DEFAULT_RELAXATION_SCHEDULE_SECONDS,
+  engagesAtSeconds,
+  MAX_RELAXATION_LEVEL,
+  ruleForLevel,
+  scheduledLevel,
+} from "./relaxation.js";
 import { DEFAULT_SCORING_THRESHOLDS, DEFAULT_WEIGHTS, type ScoringWeights } from "./scoring.js";
 
 /**
@@ -56,6 +63,14 @@ export interface MatchingThresholds {
   readonly heartbeatStaleAfterSeconds: number;
   /** How long an OFFERED expert may be silent before the offer is reconciled away. */
   readonly offerPresenceGraceSeconds: number;
+  /**
+   * Seconds from submission at which each relaxation level becomes available.
+   *
+   * Configuration, snapshotted onto every run. Tuning it changes how *soon* the
+   * search widens and never how *far* — the primary floor is enforced
+   * independently by `floorForLevel`.
+   */
+  readonly relaxationScheduleSeconds: readonly number[];
 }
 
 export const DEFAULT_MATCHING_THRESHOLDS: MatchingThresholds = {
@@ -66,6 +81,7 @@ export const DEFAULT_MATCHING_THRESHOLDS: MatchingThresholds = {
   minRatedSessions: 3,
   heartbeatStaleAfterSeconds: 180,
   offerPresenceGraceSeconds: 180,
+  relaxationScheduleSeconds: DEFAULT_RELAXATION_SCHEDULE_SECONDS,
 };
 
 export interface MatchingQueues {
@@ -85,6 +101,12 @@ export interface MatchingServiceDeps {
   readonly queues: MatchingQueues;
   readonly weights?: ScoringWeights;
   readonly thresholds?: MatchingThresholds;
+  /**
+   * Realtime delivery and timing. Optional: without it every offer is still
+   * created, still expires on time, and is still visible on the dashboard —
+   * only the immediacy is lost (requirement 10).
+   */
+  readonly notifier?: DispatchNotifier;
 }
 
 export interface DispatchOutcome {
@@ -107,6 +129,18 @@ export class MatchingService {
   constructor(private readonly deps: MatchingServiceDeps) {
     this.weights = deps.weights ?? DEFAULT_WEIGHTS;
     this.thresholds = deps.thresholds ?? DEFAULT_MATCHING_THRESHOLDS;
+  }
+
+  /**
+   * Notification is a side effect, never a step.
+   *
+   * Called after the durable write has already committed, and it cannot throw —
+   * `DispatchNotifier` swallows its own failures. Requirement 10 is satisfied by
+   * the ordering plus that guarantee: there is no point in the flow where a
+   * notification problem can prevent, undo, or delay a state change.
+   */
+  private get notify(): DispatchNotifier | undefined {
+    return this.deps.notifier;
   }
 
   // ── Entry ──────────────────────────────────────────────────────────────────
@@ -132,6 +166,12 @@ export class MatchingService {
       // schedule a second one.
       singletonKey: `deadline:${supportRequestId}`,
     });
+
+    // The customer's screen should say "finding the right expert" the moment we
+    // start, not only once an offer happens to land (requirement 5). A search
+    // that spends its first 90 seconds waiting for the relaxation schedule would
+    // otherwise look identical to one that had stalled.
+    await this.notify?.requestStateChanged(supportRequestId, request.customerId);
 
     return this.dispatchNextOffer(supportRequestId);
   }
@@ -188,12 +228,16 @@ export class MatchingService {
       // candidates in ten seconds should not arrive at level 3 immediately —
       // the point of relaxing is to trade quality for time, and no time has
       // passed yet.
-      const elapsedMinutes = (now.getTime() - request.createdAt.getTime()) / 60_000;
-      if (nextLevel > scheduledLevel(elapsedMinutes)) {
+      const elapsedSeconds = (now.getTime() - request.createdAt.getTime()) / 1000;
+      if (nextLevel > scheduledLevel(elapsedSeconds, this.thresholds.relaxationScheduleSeconds)) {
         this.deps.logger.info("matching pool exhausted; waiting for the relaxation schedule", {
           supportRequestId,
           currentLevel: run.relaxationLevel,
-          elapsedMinutes: Math.round(elapsedMinutes),
+          elapsedSeconds: Math.round(elapsedSeconds),
+          nextLevelAtSeconds: engagesAtSeconds(
+            nextLevel,
+            this.thresholds.relaxationScheduleSeconds,
+          ),
         });
         // Come back when the next level is due. Not a failure — experts also
         // come online during this window and get picked up by the re-rank.
@@ -275,6 +319,22 @@ export class MatchingService {
       });
 
       await this.scheduleOfferTimeout(opened, now);
+
+      this.notify?.timing(TIMING_POINTS.OFFER_PERSISTED, {
+        supportRequestId: request.id,
+        attemptId: opened.id,
+        expertProfileId: opened.expertProfileId,
+        rank: opened.rank,
+        relaxationLevel: run.relaxationLevel,
+        sinceSubmittedMs: now.getTime() - request.createdAt.getTime(),
+      });
+      await this.notify?.offerOpened({
+        expertProfileId: opened.expertProfileId,
+        supportRequestId: request.id,
+        customerId: request.customerId,
+        offeredAt: opened.offeredAt ?? now,
+      });
+
       return opened;
     }
   }
@@ -332,6 +392,15 @@ export class MatchingService {
         expertProfileId: entry.expertProfileId,
         reasons: entry.reasons,
       })),
+    });
+
+    this.notify?.timing(TIMING_POINTS.MATCHING_RUN_STARTED, {
+      supportRequestId: request.id,
+      runId: run.id,
+      relaxationLevel,
+      ranked: ranking.ranked.length,
+      excluded: ranking.excluded.length,
+      sinceSubmittedMs: now.getTime() - request.createdAt.getTime(),
     });
 
     this.deps.logger.info("matching run created", {
@@ -468,6 +537,20 @@ export class MatchingService {
       responseSeconds: closed.responseSeconds,
     });
 
+    this.notify?.timing(TIMING_POINTS.EXPERT_ACCEPTED, {
+      supportRequestId: request.id,
+      attemptId: attempt.id,
+      // The number that matters for the 60-second question: how long the human
+      // actually took, from the offer landing to them clicking.
+      responseSeconds: closed.responseSeconds,
+      sinceSubmittedMs: now.getTime() - request.createdAt.getTime(),
+    });
+    await this.notify?.offerClosed({
+      expertProfileId: attempt.expertProfileId,
+      supportRequestId: request.id,
+      customerId: request.customerId,
+    });
+
     return closed;
   }
 
@@ -521,6 +604,7 @@ export class MatchingService {
       declineReason: input.reason ?? null,
     });
 
+    await this.notifyOfferClosed(attempt);
     await this.returnToSearching(attempt.supportRequestId, "Expert declined.", now);
     return closed;
   }
@@ -578,6 +662,7 @@ export class MatchingService {
       expertProfileId: attempt.expertProfileId,
     });
 
+    await this.notifyOfferClosed(attempt);
     await this.returnToSearching(attempt.supportRequestId, "Offer timed out.", now);
     return { expired: true, reason: "offer window elapsed" };
   }
@@ -658,6 +743,7 @@ export class MatchingService {
         availabilityStatus: row.availabilityStatus,
       });
 
+      await this.notifyOfferClosed(row.attempt);
       // The request must not be left holding an offer nobody will answer.
       await this.returnToSearching(
         row.attempt.supportRequestId,
@@ -866,6 +952,7 @@ export class MatchingService {
     }
 
     await this.transition(request, "SEARCHING", { actorType: "SYSTEM", reason });
+    await this.notify?.requestStateChanged(supportRequestId, request.customerId);
     await this.deps.scheduler.enqueue({
       queue: this.deps.queues.dispatchNextOffer,
       payload: { supportRequestId },
@@ -876,12 +963,18 @@ export class MatchingService {
     if (request.state !== "SEARCHING" && request.state !== "OFFERED") return;
     await this.transition(request, "NO_EXPERT_FOUND", { actorType: "SYSTEM", reason });
     this.deps.logger.warn("no expert found", { supportRequestId: request.id, reason });
+    // Requirement 5: the customer should not be left watching a spinner that
+    // will never resolve.
+    await this.notify?.requestStateChanged(request.id, request.customerId);
   }
 
   private secondsUntilNextLevel(level: number, createdAt: Date, now: Date): number {
-    const rule = ruleForLevel(level);
-    const engagesAt = createdAt.getTime() + rule.engagesAtMinutes * 60_000;
-    return Math.max(5, Math.ceil((engagesAt - now.getTime()) / 1000));
+    const engagesAt =
+      createdAt.getTime() +
+      engagesAtSeconds(level, this.thresholds.relaxationScheduleSeconds) * 1000;
+    // Floor of 2s rather than 5s: with a 90-second first step, a five-second
+    // minimum was a meaningful slice of the wait it was rounding.
+    return Math.max(2, Math.ceil((engagesAt - now.getTime()) / 1000));
   }
 
   private async transition(
@@ -913,6 +1006,23 @@ export class MatchingService {
       });
     }
     return updated;
+  }
+
+  /**
+   * Signals an offer closing, looking up the customer to address their channel.
+   *
+   * The lookup is cheap and skipped entirely when there is no notifier. Reading a
+   * row for a notification is acceptable; failing an expert's decline because the
+   * read failed is not, which is why it is nullable rather than required.
+   */
+  private async notifyOfferClosed(attempt: MatchingAttemptRecord): Promise<void> {
+    if (!this.notify) return;
+    const request = await this.deps.requests.findById(attempt.supportRequestId);
+    await this.notify.offerClosed({
+      expertProfileId: attempt.expertProfileId,
+      supportRequestId: attempt.supportRequestId,
+      customerId: request?.customerId ?? "",
+    });
   }
 
   private async requireRequest(id: string): Promise<SupportRequestRecord> {

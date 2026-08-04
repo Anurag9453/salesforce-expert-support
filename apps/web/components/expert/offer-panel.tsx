@@ -4,6 +4,8 @@ import { DECLINE_REASON_LABELS, type DeclineReasonCode, type OfferView } from "@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, CardBody, Field, Textarea } from "@/components/ui";
+import { playOfferSound, showOfferNotification } from "@/lib/offer-alerts";
+import { reportTiming, useRealtime } from "@/lib/use-realtime";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,12 +24,18 @@ import { cn } from "@/lib/utils";
  *   - **A manual assignment says so.** An expert chosen by a human is told a
  *     human chose them, and why (requirement 13).
  *
- * Polling at 3s until realtime lands in Phase 6. That is honest for a screen
- * waiting on an event; §17 rules out polling as the *dispatch* mechanism, which
- * this is not.
+ * ## Realtime (Phase 6)
+ *
+ * The offer arrives over SSE and this component's response to a signal is always
+ * the same: **re-fetch** (requirement 3). It never reads an event payload, so
+ * duplicate or replayed signals cause duplicate fetches and one outcome
+ * (requirement 2), and a signal cannot restart the countdown because the deadline
+ * comes from the fetched offer (requirement 15).
+ *
+ * Reconnecting reconciles rather than resumes (requirement 14): an expert who was
+ * disconnected while their offer expired comes back to "that one has gone", not to
+ * a card they can still click.
  */
-
-const POLL_MS = 3000;
 
 export function OfferPanel({ initial }: { initial: OfferView | null }) {
   const router = useRouter();
@@ -44,36 +52,60 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
   // rather than a decrement — a backgrounded tab that misses ticks still shows
   // the right number when it comes back.
   const expiresAtMs = useRef<number | null>(initial ? Date.parse(initial.offerExpiresAt) : null);
+  // Which offer we have already alerted on, so reconciling twice does not make
+  // the sound play twice (requirement 2, from the user's side).
+  const alertedFor = useRef<string | null>(initial?.attemptId ?? null);
+  const offerRef = useRef<OfferView | null>(initial);
+  offerRef.current = offer;
+  const outcomeRef = useRef(outcome);
+  outcomeRef.current = outcome;
 
-  const load = useCallback(async () => {
+  /**
+   * The single reconcile path.
+   *
+   * Called on a signal, on connect, on reconnect, and on the slow fallback poll.
+   * All four do the same thing, which is why none of them can disagree.
+   */
+  const reconcile = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/expert/offer");
       const body = await response.json();
       if (!body.ok) return;
       const next = body.data as OfferView | null;
+      const current = offerRef.current;
+
       if (next) {
         setOffer(next);
         expiresAtMs.current = Date.parse(next.offerExpiresAt);
         setRemaining(next.secondsRemaining);
         setOutcome(null);
-      } else if (offer && !outcome) {
-        // The offer vanished without us answering — it timed out, or an admin
-        // reassigned it. Say so rather than letting the card silently disappear.
+
+        // First time we have seen this particular offer: alert, and report how
+        // long it took to become visible (requirement 16, point 6).
+        if (alertedFor.current !== next.attemptId) {
+          alertedFor.current = next.attemptId;
+          playOfferSound();
+          showOfferNotification(next.skills.map((skill) => skill.name));
+          reportTiming("expert_reconciled", {
+            supportRequestId: next.supportRequestId,
+            observedLatencyMs: Math.max(0, Date.now() - Date.parse(next.offeredAt)),
+          });
+        }
+      } else if (current && !outcomeRef.current) {
+        // It vanished without us answering: it expired, or an admin reassigned
+        // it. Requirement 14 — say so plainly rather than leaving a dead card, and
+        // never resurrect it.
         setOutcome("expired");
         setOffer(null);
+        expiresAtMs.current = null;
       }
     } catch {
-      // A dropped poll is not worth an error banner; the next one is 3s away.
+      // A dropped fetch is not worth an error banner. The stream or the fallback
+      // poll will try again.
     }
-  }, [offer, outcome]);
+  }, []);
 
-  // Poll for an offer arriving. Stops once one is open — the countdown takes
-  // over, and re-fetching would only fight it.
-  useEffect(() => {
-    if (offer || outcome) return;
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [offer, outcome, load]);
+  const realtimeStatus = useRealtime(reconcile);
 
   useEffect(() => {
     if (!offer) return;
@@ -106,13 +138,14 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
       if (result.ok) {
         setOutcome(body.decision === "accept" ? "accepted" : "declined");
         setOffer(null);
+        expiresAtMs.current = null;
         setDeclining(false);
         router.refresh();
       } else {
         setError(result.error?.message ?? "Could not send your answer.");
-        // Almost always "it expired" or "someone else got it" — reload so the
+        // Almost always "it expired" or "someone else got it" — reconcile so the
         // screen tells the truth rather than showing a stale card.
-        void load();
+        void reconcile();
       }
     } catch {
       setError("Could not reach the server. Check your connection.");
@@ -155,6 +188,15 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
           <p className="text-sm text-ink-muted">
             No requests right now. Keep this page open — an offer will appear here the moment one is
             matched to you.
+          </p>
+          {/* Honest about the transport, because "is this thing working?" is the
+              question an expert waiting for work actually has. */}
+          <p className="mt-2 text-xs text-ink-subtle">
+            {realtimeStatus === "live"
+              ? "Connected — offers arrive instantly."
+              : realtimeStatus === "connecting"
+                ? "Connecting…"
+                : "Reconnecting — offers will still appear, just a few seconds later."}
           </p>
         </CardBody>
       </Card>

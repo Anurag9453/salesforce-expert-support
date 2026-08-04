@@ -7,6 +7,9 @@ import {
   MockPayoutProvider,
   PgBossScheduler,
   PrismaAttachmentRepository,
+  NoopRealtimeBus,
+  PostgresRealtimeBus,
+  PostgresRealtimeHub,
   PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
   PrismaMatchingRepository,
@@ -24,6 +27,7 @@ import type { PrismaClient } from "@sfx/db";
 import {
   AccountService,
   DEFAULT_MATCHING_THRESHOLDS,
+  DispatchNotifier,
   ExpertAdminService,
   ExpertApplicationService,
   ExpertAvailabilityService,
@@ -84,6 +88,8 @@ export interface Container {
    */
   readonly matching: MatchingService;
   readonly matchingRepo: PrismaMatchingRepository;
+  /** Null when realtime is off — the SSE route then holds the stream open and sends nothing. */
+  readonly realtimeHub: PostgresRealtimeHub | null;
   readonly supportRequests: SupportRequestService;
   /** Built lazily — it needs the taxonomy, which lives in the database. */
   buildClassifier(): Promise<ProblemClassifier>;
@@ -148,6 +154,33 @@ function build(): Container {
   const attachments = new PrismaAttachmentRepository(prisma);
   const matchingRepo = new PrismaMatchingRepository(prisma);
 
+  const realtime = (() => {
+    switch (env.REALTIME_PROVIDER) {
+      case "mock":
+        return new NoopRealtimeBus();
+      case "postgres":
+        return new PostgresRealtimeBus(
+          (sql, params) => prisma.$queryRawUnsafe(sql, ...params),
+          logger,
+        );
+      case "ably":
+        throw new Error("REALTIME_PROVIDER=ably has no adapter yet. Use postgres or mock.");
+      default: {
+        const never: never = env.REALTIME_PROVIDER;
+        throw new Error(`Unsupported REALTIME_PROVIDER: ${String(never)}`);
+      }
+    }
+  })();
+
+  // One LISTEN connection for the whole web process, fanned out to every open
+  // SSE stream. A connection per subscriber would exhaust the pool at a few
+  // dozen experts. Needs the unpooled URL — a transaction pooler cannot hold a
+  // LISTEN.
+  const realtimeHub =
+    env.REALTIME_PROVIDER === "postgres"
+      ? new PostgresRealtimeHub(env.DIRECT_DATABASE_URL ?? env.DATABASE_URL, logger)
+      : null;
+
   return {
     prisma,
     clock,
@@ -180,6 +213,7 @@ function build(): Container {
       clock,
     }),
     matchingRepo,
+    realtimeHub,
     matching: new MatchingService({
       requests,
       matching: matchingRepo,
@@ -188,6 +222,7 @@ function build(): Container {
       scheduler,
       clock,
       logger,
+      notifier: new DispatchNotifier({ realtime, clock, logger }),
       queues: {
         dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
         offerTimeout: QUEUES.OFFER_TIMEOUT,
@@ -196,6 +231,7 @@ function build(): Container {
       thresholds: {
         ...DEFAULT_MATCHING_THRESHOLDS,
         offerWindowSeconds: env.OFFER_WINDOW_SECONDS,
+        relaxationScheduleSeconds: env.RELAXATION_SCHEDULE_SECONDS,
         heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
         offerPresenceGraceSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
       },
@@ -216,6 +252,7 @@ function build(): Container {
       clock,
       matchingWindowMinutes: 15,
       classifyQueue: QUEUES.CLASSIFY_REQUEST,
+      logger,
     }),
     async buildClassifier() {
       if (env.CLASSIFIER_PROVIDER === "anthropic" && env.ANTHROPIC_API_KEY) {

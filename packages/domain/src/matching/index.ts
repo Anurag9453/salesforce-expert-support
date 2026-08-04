@@ -5,3 +5,4 @@ export * from "./filters.js";
 export * from "./rank.js";
 export * from "./matching-service.js";
 export * from "./in-memory-matching-world.js";
+export * from "./dispatch-events.js";

@@ -212,8 +212,17 @@ const MATCHING_THRESHOLDS = {
   /// worse than no expert, because the promise is that we chose correctly.
   primaryProficiencyFloorByLevel: ["ADVANCED", "ADVANCED", "INTERMEDIATE", "INTERMEDIATE"],
   absolutePrimaryProficiencyFloor: "INTERMEDIATE",
-  /// Elapsed minutes at which each relaxation level engages.
-  relaxationScheduleMinutes: [0, 4, 8, 12],
+  /// Elapsed SECONDS at which each relaxation level engages (§C3).
+  ///
+  /// 0 · 90s · 3m · 6m, inside the 15-minute deadline. Tuned for a small launch
+  /// roster: a thin bench exhausts its level-0 candidates in seconds, and making
+  /// the customer wait four minutes for a level change they cannot see is the
+  /// worst possible use of a fifteen-minute promise.
+  ///
+  /// Overridable by RELAXATION_SCHEDULE_SECONDS. Snapshotted onto every
+  /// MatchingRun, so retuning it never rewrites the reasoning behind an old
+  /// decision.
+  relaxationScheduleSeconds: [0, 90, 180, 360],
   maxRelaxationLevel: 3,
 } as const;
 

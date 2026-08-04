@@ -12,13 +12,15 @@ import { PROFICIENCY_ORDER } from "./proficiency.js";
 import {
   ABSOLUTE_PRIMARY_FLOOR,
   couldEverQualify,
+  DEFAULT_RELAXATION_SCHEDULE_SECONDS,
+  engagesAtSeconds,
   floorForLevel,
   MAX_RELAXATION_LEVEL,
   RELAXATION_LADDER,
   ruleForLevel,
   scheduledLevel,
 } from "./relaxation.js";
-import { DEFAULT_SCORING_THRESHOLDS } from "./scoring.js";
+import { DEFAULT_SCORING_THRESHOLDS, DEFAULT_WEIGHTS, scoreCandidate } from "./scoring.js";
 
 /**
  * The hard filters, and the floor the relaxation ladder can never cross.
@@ -236,13 +238,48 @@ describe("the relaxation ladder", () => {
     }
   });
 
-  it("engages levels on the documented schedule", () => {
+  it("engages levels on the launch schedule — 0s, 90s, 3m, 6m", () => {
     expect(scheduledLevel(0)).toBe(0);
-    expect(scheduledLevel(3.9)).toBe(0);
-    expect(scheduledLevel(4)).toBe(1);
-    expect(scheduledLevel(8)).toBe(2);
-    expect(scheduledLevel(12)).toBe(3);
-    expect(scheduledLevel(14.9)).toBe(3);
+    expect(scheduledLevel(89)).toBe(0);
+    expect(scheduledLevel(90)).toBe(1);
+    expect(scheduledLevel(179)).toBe(1);
+    expect(scheduledLevel(180)).toBe(2);
+    expect(scheduledLevel(359)).toBe(2);
+    expect(scheduledLevel(360)).toBe(3);
+    // Still level 3 right up to the deadline; there is no level 4 to reach.
+    expect(scheduledLevel(14 * 60)).toBe(3);
+  });
+
+  it("reaches maximum relaxation with most of the window still left", () => {
+    // The point of the retune. Under the old 0/4/8/12 schedule a thin bench sat
+    // at level 0 for four minutes; now every level is available inside the first
+    // six, leaving nine minutes of the promise to actually find someone.
+    expect(DEFAULT_RELAXATION_SCHEDULE_SECONDS.at(-1)).toBe(360);
+    expect(DEFAULT_RELAXATION_SCHEDULE_SECONDS.at(-1)!).toBeLessThan(15 * 60);
+  });
+
+  it("takes a caller-supplied schedule, because it is configuration", () => {
+    const faster = [0, 10, 20, 30];
+    expect(scheduledLevel(15, faster)).toBe(1);
+    expect(scheduledLevel(35, faster)).toBe(3);
+    // And a slower one cannot reach a level the caller did not permit.
+    expect(scheduledLevel(15, [0, 600, 900, 1200])).toBe(0);
+  });
+
+  it("reports when each level engages, for scheduling the wake-up", () => {
+    expect(engagesAtSeconds(0)).toBe(0);
+    expect(engagesAtSeconds(1)).toBe(90);
+    expect(engagesAtSeconds(3)).toBe(360);
+    // Out of range clamps rather than returning undefined.
+    expect(engagesAtSeconds(99)).toBe(360);
+  });
+
+  it("cannot be configured to lower the floor", () => {
+    // A faster schedule widens sooner and never further. The floors are
+    // unchanged by any schedule the caller supplies.
+    for (let level = 0; level <= MAX_RELAXATION_LEVEL; level++) {
+      expect(ruleForLevel(level).primaryFloor).toBe(level < 2 ? "ADVANCED" : "INTERMEDIATE");
+    }
   });
 
   it("relaxes the rating floor before it relaxes competence", () => {
@@ -328,103 +365,113 @@ describe("eligibility filtering (stage 1)", () => {
 
 // ── Stage 2, the other gates ─────────────────────────────────────────────────
 
-describe("secondary-skill coverage", () => {
+describe("secondary skills rank, they do not gate", () => {
   const need = required(["apex", true], ["triggers", false], ["batch-apex", false]);
 
   /**
-   * The shape a real classified request actually has, as a regression test.
+   * The Phase 6 decision, as the test that pins it.
    *
-   * One primary and three supporting skills, and an expert who is EXPERT at the
-   * primary and holds exactly one of the three. Level 0 must admit them.
+   * Secondary-skill alignment is a ranking signal, not an eligibility one. It
+   * lives in `skillScore` — see `scoring.test.ts` and the assertions below — and
+   * `secondaryCoverage` is 0 at every level.
    *
-   * This is the case that broke: coverage started at 1.0, so nobody matched at
-   * level 0 and every request waited four minutes to relax. The unit tests all
-   * used two-skill requests and never saw it — the end-to-end run did.
+   * Twice before, this was a hard gate and twice it excluded the right person:
+   * at 1.0 nobody matched at level 0 at all, and at 0.25 an expert holding
+   * `apex: ADVANCED` was made to wait 180 seconds for a batch-Apex request
+   * because they had not separately declared `batch-apex`. The taxonomy is
+   * finer-grained than expertise is.
    */
-  it("admits a strong specialist who covers only one of three supporting skills", () => {
-    const realWorld = required(
-      ["apex", true],
-      ["triggers", false],
-      ["soql-sosl", false],
-      ["governor-limits", false],
-    );
-    const specialist = candidate({
-      id: "real",
-      skills: { apex: ["EXPERT", 8], triggers: ["ADVANCED", 7] },
-    });
-    const outcome = applyFilters({
-      candidate: specialist,
-      eligibility: eligible(),
-      context: context(0, { required: realWorld }),
-    });
-    expect(outcome.passed).toBe(true);
-    expect(outcome.reasons).toEqual([]);
-  });
-
-  it("still excludes someone who covers none of the supporting skills at level 0", () => {
-    const bare = candidate({ id: "F", skills: { apex: "EXPERT" } });
-    expect(
-      applyFilters({
+  it("admits an expert who covers none of the supporting skills, at every level", () => {
+    const bare = candidate({ id: "bare", skills: { apex: "EXPERT" } });
+    for (let level = 0; level <= MAX_RELAXATION_LEVEL; level++) {
+      const outcome = applyFilters({
         candidate: bare,
         eligibility: eligible(),
-        context: context(0, { required: need }),
-      }).reasons,
-    ).toContain("INSUFFICIENT_SECONDARY_COVERAGE");
+        context: context(level, { required: need }),
+      });
+      expect(outcome.passed, `level ${level}`).toBe(true);
+      expect(outcome.reasons).toEqual([]);
+    }
   });
 
-  it("admits half coverage at level 0 — the score, not the filter, rewards more", () => {
-    const partial = candidate({ id: "G", skills: { apex: "EXPERT", triggers: "ADVANCED" } });
-    expect(
-      applyFilters({
-        candidate: partial,
-        eligibility: eligible(),
-        context: context(0, { required: need }),
-      }).passed,
-    ).toBe(true);
+  it("keeps the coverage lever at zero on every rung", () => {
+    // A guard against quietly re-enabling it. If someone raises this, they should
+    // have to change this test and read why it is here.
+    for (let level = 0; level <= MAX_RELAXATION_LEVEL; level++) {
+      expect(ruleForLevel(level).secondaryCoverage, `level ${level}`).toBe(0);
+    }
   });
 
-  it("stops asking for secondaries entirely by level 2", () => {
-    const bare = candidate({ id: "H0", skills: { apex: "EXPERT" } });
-    expect(
-      applyFilters({
-        candidate: bare,
-        eligibility: eligible(),
-        context: context(2, { required: need }),
-      }).passed,
-    ).toBe(true);
+  it("still ranks fuller coverage above narrower coverage", () => {
+    // The other half of the decision: removing the gate must not remove the
+    // signal. Same primary level, so the band is equal and the score decides.
+    const complete = candidate({
+      id: "complete",
+      skills: { apex: ["ADVANCED", 5], triggers: ["ADVANCED", 5], "batch-apex": ["ADVANCED", 5] },
+      idleMinutes: 60,
+    });
+    const narrow = candidate({
+      id: "narrow",
+      skills: { apex: ["ADVANCED", 5] },
+      idleMinutes: 60,
+    });
+
+    const wide = scoreCandidate({
+      required: need,
+      candidate: complete,
+      weights: DEFAULT_WEIGHTS,
+      thresholds: THRESHOLDS,
+      allowCategorySubstitute: false,
+    });
+    const thin = scoreCandidate({
+      required: need,
+      candidate: narrow,
+      weights: DEFAULT_WEIGHTS,
+      thresholds: THRESHOLDS,
+      allowCategorySubstitute: false,
+    });
+
+    expect(wide.skillScore).toBeGreaterThan(thin.skillScore);
+    expect(wide.finalScore).toBeGreaterThan(thin.finalScore);
+    // Same band — the difference is entirely the score, which is the point.
+    expect(wide.breakdown.primaryBand).toBe(thin.breakdown.primaryBand);
   });
 
-  it("counts a category sibling toward coverage at level 3 only", () => {
-    // Four secondaries so a third of them is more than one, making the
-    // substitution observable rather than masked by the low threshold.
-    const wide = required(
-      ["apex", true],
-      ["triggers", false],
-      ["batch-apex", false],
-      ["platform-events", false],
-    );
+  it("counts an uncovered secondary as zero in the score, not as an exclusion", () => {
+    const narrow = candidate({ id: "n", skills: { apex: ["ADVANCED", 5] } });
+    const score = scoreCandidate({
+      required: need,
+      candidate: narrow,
+      weights: DEFAULT_WEIGHTS,
+      thresholds: THRESHOLDS,
+      allowCategorySubstitute: false,
+    });
+    const missing = score.breakdown.perSkill.filter((s) => s.proficiencyLevel === null);
+    expect(missing).toHaveLength(2);
+    expect(missing.every((s) => s.value === 0)).toBe(true);
+  });
+
+  it("lets a category sibling raise the score at level 3, and only there", () => {
+    // `widenSecondaryToCategory` still does something now that coverage is off:
+    // at maximum relaxation a related skill stands in when *scoring*.
     const sibling = candidate({
-      id: "H",
+      id: "sibling",
       skills: {
-        apex: "EXPERT",
-        "queueable-apex": { level: "ADVANCED", category: "cat_devops" },
+        apex: ["ADVANCED", 5],
+        "queueable-apex": { level: "ADVANCED", years: 5, category: "cat_devops" },
       },
     });
-    expect(
-      applyFilters({
+    const scoreAt = (level: number) =>
+      scoreCandidate({
+        required: need,
         candidate: sibling,
-        eligibility: eligible(),
-        context: context(0, { required: wide }),
-      }).reasons,
-    ).toContain("INSUFFICIENT_SECONDARY_COVERAGE");
-    // At level 3 the sibling stands in, so coverage is met.
-    expect(
-      applyFilters({
-        candidate: sibling,
-        eligibility: eligible(),
-        context: context(3, { required: wide }),
-      }).passed,
-    ).toBe(true);
+        weights: DEFAULT_WEIGHTS,
+        thresholds: THRESHOLDS,
+        allowCategorySubstitute: ruleForLevel(level).widenSecondaryToCategory,
+      }).skillScore;
+
+    expect(scoreAt(3)).toBeGreaterThan(scoreAt(0));
+    expect(scoreAt(0)).toBe(scoreAt(2));
   });
 });
 

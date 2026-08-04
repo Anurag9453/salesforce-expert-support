@@ -15,12 +15,21 @@ import { PrismaMatchingRepository } from "./prisma-matching-repositories.js";
  * holding two live offers, accepting both, and two customers being told the same
  * person is theirs. That is why this test exists and why it talks to Postgres.
  *
- * Skipped when DATABASE_URL is absent so a checkout without a database still
- * runs `pnpm test` green; `pnpm verify` always has one.
+ * Runs whenever a database is configured. `pnpm verify` guarantees one — the step
+ * order was corrected in Phase 6 so this suite runs *after* Postgres is started
+ * rather than before, which it had been doing and getting away with only because
+ * the server usually happened to be up already.
+ *
+ * `SKIP_DB_TESTS=1` opts out, and `pnpm verify --quick` sets it. That flag exists
+ * for the one case where skipping is honest — a mode that explicitly promises not
+ * to touch a database — and nowhere else. A suite that quietly skips itself when
+ * it cannot connect would be worse than one that fails: a gate omitting its most
+ * important assertion reads exactly like a gate that passed.
  */
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const describeWithDb = DATABASE_URL ? describe : describe.skip;
+const SKIPPED = process.env.SKIP_DB_TESTS === "1";
+const describeWithDb = DATABASE_URL && !SKIPPED ? describe : describe.skip;
 
 const prisma = new PrismaClient();
 const STAMP = process.hrtime.bigint().toString(36).slice(-8);

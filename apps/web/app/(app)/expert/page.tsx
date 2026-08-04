@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AvailabilityPanel } from "@/components/expert/availability-panel";
+import { AlertSettings } from "@/components/expert/alert-settings";
 import { OfferPanel } from "@/components/expert/offer-panel";
 import {
   Alert,
@@ -81,6 +82,8 @@ export default async function ExpertWorkspacePage() {
         initial={toAvailabilityView(availability)}
         canGoAvailable={canGoAvailable(actor.expert?.status ?? "DRAFT")}
       />
+
+      <AlertSettings />
 
       <OfferPanel initial={offer} />
 

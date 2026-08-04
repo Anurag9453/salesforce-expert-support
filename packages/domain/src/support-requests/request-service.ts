@@ -1,6 +1,8 @@
 import type { CurrencyCode } from "@sfx/contracts";
 import { authorize, type Actor } from "../authorization/index.js";
 import type { Clock } from "../ports/clock.js";
+import type { Logger } from "../ports/logger.js";
+import { logTiming, TIMING_POINTS } from "../matching/dispatch-events.js";
 import type { PaymentGateway } from "../ports/payment.js";
 import type {
   AttachmentRepository,
@@ -66,6 +68,8 @@ export interface RequestServiceDeps {
   readonly clock: Clock;
   readonly matchingWindowMinutes: number;
   readonly classifyQueue: string;
+  /** Optional. Only used to record the first of requirement 16's timing points. */
+  readonly logger?: Logger;
 }
 
 /** Title from the first sentence, so the customer never has to write one. */
@@ -176,6 +180,18 @@ export class SupportRequestService {
       payload: { supportRequestId: created.id },
       singletonKey: `classify:${created.id}`,
     });
+
+    // Requirement 16, point 1. Everything downstream measures from here, so it
+    // is recorded at the moment the customer's request became durable rather
+    // than when a later stage happened to notice it.
+    if (this.deps.logger) {
+      logTiming(this.deps.logger, TIMING_POINTS.REQUEST_SUBMITTED, {
+        supportRequestId: created.id,
+        submittedAt: created.createdAt.toISOString(),
+        skillsSelected: input.skillSlugs?.length ?? 0,
+        attachments: input.attachmentIds?.length ?? 0,
+      });
+    }
 
     return {
       request: moved,

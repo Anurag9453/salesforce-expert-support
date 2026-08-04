@@ -30,26 +30,50 @@ export const MAX_RELAXATION_LEVEL = 3;
 
 export interface RelaxationRule {
   readonly level: number;
-  /** Minutes since the request was submitted at which this level engages. */
-  readonly engagesAtMinutes: number;
+  /**
+   * Seconds since submission at which this level becomes available.
+   *
+   * Seconds rather than minutes because the launch schedule is not on whole
+   * minutes — level 1 engages at 90s — and a unit that cannot express the
+   * configured value is the wrong unit.
+   *
+   * This is the **default**. The live schedule comes from
+   * `MatchingThresholds.relaxationScheduleSeconds`, which is configuration and
+   * snapshots onto every `MatchingRun`, so production data can retune it and old
+   * decisions still explain themselves (§C7).
+   */
+  readonly engagesAtSeconds: number;
   readonly primaryFloor: ProficiencyLevel;
   /**
    * Fraction of the request's secondary skills a candidate must hold.
    *
-   * Deliberately low, even at level 0. The **primary** skill is the hard gate
-   * (C3); secondary skills are supporting signals, and they already influence
-   * the outcome through `skillScore` — an expert covering more of them ranks
-   * higher. Turning them into a strict filter as well would double-count them
-   * and let the filter, rather than the score, decide.
+   * **Zero at every level, deliberately and permanently.** Secondary-skill
+   * alignment is a *ranking* signal, not an eligibility one: it is carried by
+   * `skillScore`, where a candidate covering more of the supporting skills ranks
+   * higher and one covering none of them ranks lower. Using it as a filter too
+   * double-counts it and lets the filter, rather than the score, decide.
    *
-   * This started at 1.0 and was wrong. A real classified request names three or
-   * four supporting skills ("apex" primary; "triggers", "soql-sosl",
-   * "governor-limits" secondary), and the taxonomy is finer-grained than
-   * expertise is — someone ADVANCED in Apex who never separately declared
-   * `soql-sosl` is still the right person for a SOQL-in-a-trigger problem. At
-   * 1.0 nobody matched at level 0 and every request waited four minutes for
-   * level 1. Found by running the loop end to end; the unit tests used
-   * two-skill requests and never saw it.
+   * The field is retained rather than deleted so the lever still exists and its
+   * history is legible. That history is the argument:
+   *
+   *   - **1.0 at level 0** (Phase 5, as designed). Nothing matched at level 0,
+   *     because a real classified request names three or four supporting skills
+   *     and no real expert declares all of them. Every request waited four
+   *     minutes for level 1. Found only by running the loop end to end — the unit
+   *     tests used two-skill requests and never saw it.
+   *   - **0.25 at level 0** (Phase 5, after that). Better, and still wrong: a
+   *     request classified `apex` + `batch-apex` excluded an expert holding
+   *     `apex: ADVANCED` + `triggers: ADVANCED` — a genuinely good match for a
+   *     batch Apex problem — at levels 0 *and* 1, offering it only at level 2.
+   *     Measured: 180.5 seconds of a fifteen-minute promise, spent not offering
+   *     work to someone who could have done it.
+   *   - **0 everywhere** (Phase 6, approved). The taxonomy is finer-grained than
+   *     expertise is, and treating "has not separately declared `soql-sosl`" as
+   *     disqualifying for a SOQL-in-a-trigger problem was never the intent.
+   *
+   * The pattern is worth naming: twice, a supporting signal was promoted to a
+   * hard gate and twice it excluded the right person. The **primary**-skill floor
+   * is the hard gate (§C3), and it is the only one.
    */
   readonly secondaryCoverage: number;
   /** Apply the shrunk-rating minimum at this level. */
@@ -67,37 +91,31 @@ export interface RelaxationRule {
 export const RELAXATION_LADDER: readonly RelaxationRule[] = [
   {
     level: 0,
-    engagesAtMinutes: 0,
+    engagesAtSeconds: 0,
     primaryFloor: "ADVANCED",
-    // A quarter of the supporting skills, which for the three or four a
-    // classifier typically names means **at least one**. That is the real
-    // intent: exclude someone with no overlap at all, and let the score reward
-    // fuller coverage. Chosen at 0.25 rather than 1/3 because a threshold that
-    // sits exactly on a common fraction is a threshold that excludes the case it
-    // was written to admit — 1/3 = 0.333 fails a 0.34 test.
-    secondaryCoverage: 0.25,
+    // Not a gate. `skillScore` is where secondary coverage belongs — see the
+    // field's doc comment for why this was 1.0, then 0.25, and is now 0.
+    secondaryCoverage: 0,
     enforceRatingFloor: true,
     enforceLanguage: true,
     widenSecondaryToCategory: false,
-    describes: "The expert we would pick if we had all day.",
+    describes:
+      "Deep primary competence, a rating floor, and a language match. The expert we would pick if we had all day.",
   },
   {
     level: 1,
-    engagesAtMinutes: 4,
+    engagesAtSeconds: 90,
     primaryFloor: "ADVANCED",
-    // Effectively at-least-one for any realistic skill list.
-    secondaryCoverage: 0.1,
+    secondaryCoverage: 0,
     enforceRatingFloor: false,
     enforceLanguage: true,
     widenSecondaryToCategory: false,
-    describes: "Drop the rating floor and most of the secondary requirement. Primary is untouched.",
+    describes: "Drop the rating floor. Primary competence is untouched.",
   },
   {
     level: 2,
-    engagesAtMinutes: 8,
+    engagesAtSeconds: 180,
     primaryFloor: "INTERMEDIATE",
-    // Zero: by now the only thing still being asked is primary competence, which
-    // is exactly the thing that must not move.
     secondaryCoverage: 0,
     enforceRatingFloor: false,
     enforceLanguage: false,
@@ -106,13 +124,14 @@ export const RELAXATION_LADDER: readonly RelaxationRule[] = [
   },
   {
     level: 3,
-    engagesAtMinutes: 12,
+    engagesAtSeconds: 360,
     primaryFloor: "INTERMEDIATE",
     secondaryCoverage: 0,
     enforceRatingFloor: false,
     enforceLanguage: false,
     widenSecondaryToCategory: true,
-    describes: "Secondary skills widen to the parent category. Primary still cannot move.",
+    describes:
+      "A sibling skill in the same category can stand in for a secondary when scoring. Primary still cannot move.",
   },
 ];
 
@@ -155,18 +174,58 @@ export function couldEverQualify(primaryProficiency: ProficiencyLevel): boolean 
 }
 
 /**
- * The level the schedule says we should be at, given elapsed time.
+ * The schedule the ladder ships with: **0s · 90s · 3m · 6m**, inside a
+ * 15-minute deadline.
  *
- * Advisory. The dispatcher steps up when it runs out of candidates, not when
- * the clock says so — otherwise a healthy search with a queue of good
- * candidates would relax for no reason. This is the ceiling on that stepping,
- * so a search that exhausts its pool in the first ten seconds cannot jump
- * straight to level 3.
+ * Tuned for an instant-support marketplace with a small launch roster (Q14:
+ * 10–20 hand-recruited experts). The first version was 0/4/8/12 minutes, which
+ * is the right shape for a deep bench and the wrong one for a thin one: a
+ * request that exhausts three qualified candidates in ten seconds would wait
+ * four minutes before an INTERMEDIATE expert was even considered, and with
+ * twenty experts on the roster that is most requests. Four minutes of a
+ * fifteen-minute promise spent waiting for a level change the customer cannot
+ * see is the worst possible use of it.
+ *
+ * Still bounded by the thing that does not move: every level's primary floor
+ * passes through `floorForLevel`, so a faster ladder widens *sooner* and never
+ * *further*.
  */
-export function scheduledLevel(elapsedMinutes: number): number {
+export const DEFAULT_RELAXATION_SCHEDULE_SECONDS: readonly number[] = RELAXATION_LADDER.map(
+  (rule) => rule.engagesAtSeconds,
+);
+
+/**
+ * The level the schedule permits, given elapsed time.
+ *
+ * Advisory. The dispatcher steps up when it runs out of candidates, not when the
+ * clock says so — otherwise a healthy search with a queue of good candidates
+ * would relax for no reason. This is the ceiling on that stepping, so a search
+ * that exhausts its pool in the first ten seconds cannot jump straight to
+ * level 3.
+ *
+ * The schedule is passed in rather than read from the table, because it is
+ * configuration: the caller supplies whatever `MatchingThresholds` holds, and
+ * that value is snapshotted onto the run.
+ */
+export function scheduledLevel(
+  elapsedSeconds: number,
+  schedule: readonly number[] = DEFAULT_RELAXATION_SCHEDULE_SECONDS,
+): number {
   let level = 0;
-  for (const rule of RELAXATION_LADDER) {
-    if (elapsedMinutes >= rule.engagesAtMinutes) level = rule.level;
+  for (const [index, engagesAt] of schedule.entries()) {
+    if (index > MAX_RELAXATION_LEVEL) break;
+    if (elapsedSeconds >= engagesAt) level = index;
   }
   return level;
+}
+
+/**
+ * Seconds from submission until a level becomes available, under a given
+ * schedule. Used to schedule the re-dispatch that wakes the search up.
+ */
+export function engagesAtSeconds(
+  level: number,
+  schedule: readonly number[] = DEFAULT_RELAXATION_SCHEDULE_SECONDS,
+): number {
+  return schedule[clampLevel(level)] ?? DEFAULT_RELAXATION_SCHEDULE_SECONDS[clampLevel(level)] ?? 0;
 }

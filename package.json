@@ -29,9 +29,10 @@
     "grant-role": "pnpm --filter @sfx/db grant-role",
     "pg:status": "node scripts/local-postgres.mjs status",
     "e2e:phase3": "bash scripts/e2e/phase3-requests.sh",
-    "e2e": "bash scripts/e2e/phase2-accounts.sh && bash scripts/e2e/phase3-requests.sh && bash scripts/e2e/phase4-availability.sh && bash scripts/e2e/phase5-matching.sh",
+    "e2e": "bash scripts/e2e/phase2-accounts.sh && bash scripts/e2e/phase3-requests.sh && bash scripts/e2e/phase4-availability.sh && bash scripts/e2e/phase5-matching.sh && bash scripts/e2e/phase6-realtime.sh",
     "e2e:phase4": "bash scripts/e2e/phase4-availability.sh",
-    "e2e:phase5": "bash scripts/e2e/phase5-matching.sh"
+    "e2e:phase5": "bash scripts/e2e/phase5-matching.sh",
+    "e2e:phase6": "bash scripts/e2e/phase6-realtime.sh"
   },
   "devDependencies": {
     "@sfx/config": "workspace:*",

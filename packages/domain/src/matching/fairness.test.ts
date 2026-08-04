@@ -247,6 +247,70 @@ describe("fairness cannot beat a clearly stronger technical candidate", () => {
     expect(result.ranked[0]?.expertProfileId).toBe("strong");
   });
 
+  /**
+   * Secondary skills, isolated as the only lever.
+   *
+   * The Phase 6 change made secondary alignment a *score* signal and nothing
+   * else, which raises exactly one question worth pinning: can a mountain of
+   * secondary strength now buy a candidate past a weaker primary? It cannot, and
+   * this asserts it with every other axis held equal so the answer is
+   * unambiguous — same tenure, same rating, same idle time, same acceptance rate,
+   * same response speed. Only the skills differ.
+   */
+  it("cannot be won on secondary skills alone", () => {
+    const equal = {
+      yearsExperience: 8,
+      ratingSum: 92,
+      ratingCount: 20,
+      idleMinutes: 90,
+      sessionsToday: 1,
+      offersReceived: 30,
+      offersAccepted: 27,
+      avgResponseSeconds: 20,
+    };
+
+    // Weaker primary, perfect secondary.
+    const broadWeakPrimary = candidate({
+      id: "broad",
+      skills: { cpq: ["ADVANCED", 6], billing: ["EXPERT", 9] },
+      ...equal,
+    });
+    // Stronger primary, the weakest secondary that still counts as declared.
+    const deepNarrowPrimary = candidate({
+      id: "deep",
+      skills: { cpq: ["EXPERT", 6], billing: ["BEGINNER", 1] },
+      ...equal,
+    });
+
+    const result = rank(required, [broadWeakPrimary, deepNarrowPrimary], 2);
+    expect(result.ranked[0]?.expertProfileId).toBe("deep");
+    // And the reason is the band, not a lucky weighting.
+    const bands = result.ranked.map((r) => r.score.breakdown.primaryBand);
+    expect(bands[0]).toBeGreaterThan(bands[1] ?? 0);
+  });
+
+  it("cannot be won by secondary skills even when the secondary is absent entirely", () => {
+    // The mirror of the level-0 filter that was removed: an expert who declared
+    // *no* supporting skill still outranks a broader one with a weaker primary.
+    const broad = candidate({
+      id: "broad2",
+      skills: { cpq: ["ADVANCED", 5], billing: ["EXPERT", 9] },
+      idleMinutes: 90,
+    });
+    const deepOnly = candidate({
+      id: "deepOnly",
+      skills: { cpq: ["EXPERT", 5] },
+      idleMinutes: 90,
+    });
+
+    const result = rank(required, [broad, deepOnly], 2);
+    expect(result.ranked[0]?.expertProfileId).toBe("deepOnly");
+    // Both are candidates — the narrow one is ranked, not excluded, which is the
+    // Phase 6 change; and the deeper primary still wins, which is C3.
+    expect(result.ranked).toHaveLength(2);
+    expect(result.excluded).toHaveLength(0);
+  });
+
   it("bands on the declared level, so verification cannot promote anyone", () => {
     // Requirement 5: verification improves confidence within a band and must
     // never become the thing that gets you work.
