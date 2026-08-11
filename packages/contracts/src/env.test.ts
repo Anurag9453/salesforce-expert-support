@@ -167,3 +167,45 @@ describe("server env", () => {
     });
   });
 });
+
+describe("Stripe credentials are a boot requirement, not a runtime discovery", () => {
+  /** The field names an EnvValidationError complained about. */
+  function failedFields(env: NodeJS.ProcessEnv): string[] {
+    try {
+      parseServerEnv(env);
+      return [];
+    } catch (error) {
+      if (error instanceof EnvValidationError) {
+        return error.issues.map((issue) => issue.path.join("."));
+      }
+      throw error;
+    }
+  }
+
+  it("refuses PAYMENT_PROVIDER=stripe with no secret key", () => {
+    expect(failedFields({ ...valid, PAYMENT_PROVIDER: "stripe" })).toContain("STRIPE_SECRET_KEY");
+  });
+
+  it("refuses a secret key with no webhook secret", () => {
+    // The dangerous half. Without this the app boots, takes authorizations, and
+    // silently cannot verify a single payment confirmation — which looks like
+    // working software right up until reconciliation.
+    expect(
+      failedFields({ ...valid, PAYMENT_PROVIDER: "stripe", STRIPE_SECRET_KEY: "sk_test_x" }),
+    ).toContain("STRIPE_WEBHOOK_SECRET");
+  });
+
+  it("accepts stripe once both credentials are present", () => {
+    const env = parseServerEnv({
+      ...valid,
+      PAYMENT_PROVIDER: "stripe",
+      STRIPE_SECRET_KEY: "sk_test_x",
+      STRIPE_WEBHOOK_SECRET: "whsec_x",
+    });
+    expect(env.PAYMENT_PROVIDER).toBe("stripe");
+  });
+
+  it("does not demand Stripe credentials while the provider is mock", () => {
+    expect(failedFields(valid)).toEqual([]);
+  });
+});

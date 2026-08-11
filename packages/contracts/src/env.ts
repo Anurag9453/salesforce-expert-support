@@ -154,8 +154,18 @@ const baseServerEnv = z.object({
    */
   REALTIME_PROVIDER: z.enum(["postgres", "ably", "mock"]).default("postgres"),
 
-  // ── Phase 7a/7b: payments & payouts — provider undecided (Q3) ─────────────
-  PAYMENT_PROVIDER: z.enum(["mock"]).default("mock"),
+  // ── Payments ──────────────────────────────────────────────────────────────
+  /**
+   * `stripe` requires both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.
+   *
+   * The webhook secret is not optional-when-convenient: without it a webhook
+   * cannot be verified, and an unverified webhook means anyone who finds the
+   * endpoint can announce a payment that never happened. The refinement below
+   * makes that a boot failure rather than a runtime discovery.
+   */
+  PAYMENT_PROVIDER: z.enum(["stripe", "mock"]).default("mock"),
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   PAYOUT_PROVIDER: z.enum(["mock"]).default("mock"),
 
   // ── Phase 8: video ────────────────────────────────────────────────────────
@@ -198,6 +208,30 @@ export const serverEnvSchema = pairedCredentials(
         "the last level must engage well inside the 15-minute matching window, or it is unreachable.",
     });
   }
+  /*
+    Selecting Stripe without its credentials must fail at boot, not at the first
+    customer. Missing the webhook secret is the dangerous half: the app would run,
+    take authorizations, and then be unable to verify a single confirmation —
+    which looks like working software right up until reconciliation.
+  */
+  if (value.PAYMENT_PROVIDER === "stripe") {
+    if (!value.STRIPE_SECRET_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STRIPE_SECRET_KEY"],
+        message: "is required when PAYMENT_PROVIDER=stripe.",
+      });
+    }
+    if (!value.STRIPE_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STRIPE_WEBHOOK_SECRET"],
+        message:
+          "is required when PAYMENT_PROVIDER=stripe — without it no webhook can be verified, and an unverified webhook is anyone announcing a payment that never happened.",
+      });
+    }
+  }
+
   if (value.HEARTBEAT_INTERVAL_SECONDS >= value.HEARTBEAT_STALE_AFTER_SECONDS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
