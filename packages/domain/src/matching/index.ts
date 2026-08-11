@@ -3,6 +3,7 @@ export * from "./relaxation.js";
 export * from "./scoring.js";
 export * from "./filters.js";
 export * from "./rank.js";
+export * from "./shortlist.js";
 export * from "./matching-service.js";
 export * from "./in-memory-matching-world.js";
 export * from "./dispatch-events.js";

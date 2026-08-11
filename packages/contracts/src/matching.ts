@@ -176,3 +176,63 @@ export const dispatchCandidateSchema = z.object({
   assignable: z.boolean(),
 });
 export type DispatchCandidateView = z.infer<typeof dispatchCandidateSchema>;
+
+// ── The shortlist the customer chooses from ──────────────────────────────────
+
+/**
+ * One of the three cards.
+ *
+ * This is the first place the platform has ever shown a customer an expert's
+ * identity, and it is a deliberate reversal of the original rule that a customer
+ * never browses or chooses. Everything on it is therefore either something the
+ * expert published about themselves or a figure derived from work they actually
+ * did — nothing inferred, and nothing about how they were ranked.
+ *
+ * Specifically absent: score, rank, relaxation level, exclusion reasons, and any
+ * hint of who else was considered. The customer picks between three people, not
+ * between three scores, and leaking the ordering would turn a choice into a
+ * recommendation they feel obliged to follow.
+ */
+export const shortlistCandidateSchema = z.object({
+  /** The attempt, not the expert. Selection targets an attempt so a stale card cannot re-open a closed one. */
+  attemptId: cuidSchema,
+  displayName: z.string(),
+  /** Null until they upload one; a missing photo never blocks being matched. */
+  photoUrl: z.string().nullable(),
+  headline: z.string().nullable(),
+  yearsExperience: z.number().int().nullable(),
+  /** Whole hours actually delivered. Zero for everyone until sessions ship. */
+  hoursDelivered: z.number().int(),
+  sessionsCompleted: z.number().int(),
+  /** Plain mean and count, or null when they have no reviews yet. */
+  rating: z.object({ average: z.number(), count: z.number().int() }).nullable(),
+  /** Skills relevant to *this* request, so the card answers "why them". */
+  matchedSkills: z.array(z.object({ name: z.string(), verified: z.boolean() })),
+});
+export type ShortlistCandidateView = z.infer<typeof shortlistCandidateSchema>;
+
+export const shortlistViewSchema = z.object({
+  candidates: z.array(shortlistCandidateSchema),
+  /** Absolute instant the whole request stops matching. Drives the customer's countdown. */
+  matchDeadlineAt: z.string(),
+  /** Set once the customer has picked and that expert's two minutes are running. */
+  awaitingConfirmation: z
+    .object({ attemptId: cuidSchema, confirmExpiresAt: z.string() })
+    .nullable(),
+});
+export type ShortlistView = z.infer<typeof shortlistViewSchema>;
+
+/** The customer's pick. */
+export const selectShortlistCandidateSchema = z.object({ attemptId: cuidSchema });
+export type SelectShortlistCandidateInput = z.infer<typeof selectShortlistCandidateSchema>;
+
+/**
+ * An expert's answer to a broadcast.
+ *
+ * "interested" is explicitly not an acceptance — it is a statement that they
+ * would take the work if chosen. The commitment happens later, at confirmation.
+ */
+export const respondToInterestSchema = z.object({
+  interested: z.boolean(),
+});
+export type RespondToInterestInput = z.infer<typeof respondToInterestSchema>;
