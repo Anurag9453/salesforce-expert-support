@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cuidSchema, expertStatusSchema } from "./primitives.js";
+import { countryName, isCountryCode, isTimeZoneInCountry, TIME_ZONE_META } from "./geo.js";
 
 /**
  * Expert application contracts.
@@ -10,25 +11,68 @@ import { cuidSchema, expertStatusSchema } from "./primitives.js";
  */
 
 const url = z.string().url().max(500);
+
+/**
+ * Country and time zone are picklist values, not free text.
+ *
+ * `country` is an ISO 3166-1 alpha-2 code and `timezone` is an IANA identifier
+ * drawn from that country's list. Storing a code rather than a display name is
+ * what makes the pair checkable at all — "India" and "Asia/Kolkata" cannot be
+ * cross-referenced, "IN" and "Asia/Kolkata" can.
+ *
+ * The pair rule lives in `refineCountryTimeZone` below, applied at the object
+ * level because neither field can validate the other on its own.
+ */
+const countryCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine(isCountryCode, "Choose a country from the list");
+
+const timeZoneId = z
+  .string()
+  .trim()
+  .refine((value) => value in TIME_ZONE_META, "Choose a time zone from the list");
+
+/**
+ * A zone must belong to the country chosen beside it, so "IN" +
+ * "America/Los_Angeles" is rejected rather than silently stored. Reported
+ * against `timezone`, because that is the field the applicant would change.
+ */
+export function refineCountryTimeZone(
+  value: { country?: string | null; timezone?: string | null },
+  ctx: z.RefinementCtx,
+): void {
+  const { country, timezone } = value;
+  if (!country || !timezone) return;
+  if (isTimeZoneInCountry(timezone, country)) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["timezone"],
+    message: `That time zone is not one of ${countryName(country)}'s. Pick the country first, then its time zone.`,
+  });
+}
 const ISO_LANGUAGE = /^[a-z]{2}(-[A-Z]{2})?$/;
 
 /** Anything the applicant may set. Every field optional — this is a save, not a submit. */
-export const expertApplicationDraftSchema = z.object({
-  country: z.string().min(2).max(64).optional(),
-  timezone: z.string().min(3).max(64).optional(),
-  yearsExperience: z.coerce.number().int().min(0).max(60).optional(),
-  professionalSummary: z.string().min(1).max(4000).optional(),
-  languages: z
-    .array(z.string().regex(ISO_LANGUAGE, "must be an ISO language code such as 'en' or 'en-IN'"))
-    .max(20)
-    .optional(),
-  certifications: z.array(z.string().min(1).max(160)).max(40).optional(),
-  linkedinUrl: url.or(z.literal("")).optional(),
-  githubUrl: url.or(z.literal("")).optional(),
-  employmentStatus: z.string().max(160).optional(),
-  acceptTerms: z.boolean().optional(),
-  acceptConfidentiality: z.boolean().optional(),
-});
+export const expertApplicationDraftSchema = z
+  .object({
+    country: countryCode.optional(),
+    timezone: timeZoneId.optional(),
+    yearsExperience: z.coerce.number().int().min(0).max(60).optional(),
+    professionalSummary: z.string().min(1).max(4000).optional(),
+    languages: z
+      .array(z.string().regex(ISO_LANGUAGE, "must be an ISO language code such as 'en' or 'en-IN'"))
+      .max(20)
+      .optional(),
+    certifications: z.array(z.string().min(1).max(160)).max(40).optional(),
+    linkedinUrl: url.or(z.literal("")).optional(),
+    githubUrl: url.or(z.literal("")).optional(),
+    employmentStatus: z.string().max(160).optional(),
+    acceptTerms: z.boolean().optional(),
+    acceptConfidentiality: z.boolean().optional(),
+  })
+  .superRefine(refineCountryTimeZone);
 export type ExpertApplicationDraftInput = z.infer<typeof expertApplicationDraftSchema>;
 
 /**
@@ -36,14 +80,16 @@ export type ExpertApplicationDraftInput = z.infer<typeof expertApplicationDraftS
  * indicator; the authoritative check runs in the domain at submit time, because
  * a client-side check is a hint and never a gate.
  */
-export const expertApplicationSubmissionSchema = z.object({
-  country: z.string().min(2).max(64),
-  timezone: z.string().min(3).max(64),
-  yearsExperience: z.coerce.number().int().min(0).max(60),
-  professionalSummary: z.string().min(80, "Tell us enough to review you fairly").max(4000),
-  acceptTerms: z.literal(true),
-  acceptConfidentiality: z.literal(true),
-});
+export const expertApplicationSubmissionSchema = z
+  .object({
+    country: countryCode,
+    timezone: timeZoneId,
+    yearsExperience: z.coerce.number().int().min(0).max(60),
+    professionalSummary: z.string().min(80, "Tell us enough to review you fairly").max(4000),
+    acceptTerms: z.literal(true),
+    acceptConfidentiality: z.literal(true),
+  })
+  .superRefine(refineCountryTimeZone);
 
 export const expertApplicationSchema = z.object({
   id: cuidSchema,

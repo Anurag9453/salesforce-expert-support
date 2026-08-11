@@ -84,8 +84,42 @@ describe("adminVerifySkillSchema", () => {
 
 describe("updateExpertProfileSchema — requirement 8", () => {
   it("accepts a partial edit", () => {
-    const parsed = updateExpertProfileSchema.parse({ country: "India" });
-    expect(parsed).toEqual({ country: "India" });
+    // An ISO 3166-1 alpha-2 code, not a display name. Country and time zone are
+    // picklists now, and a code is the only form the pair rule can check.
+    const parsed = updateExpertProfileSchema.parse({ country: "IN" });
+    expect(parsed).toEqual({ country: "IN" });
+  });
+
+  it("normalises a lowercase country code rather than rejecting it", () => {
+    expect(updateExpertProfileSchema.parse({ country: "in" }).country).toBe("IN");
+  });
+
+  it("refuses a country name where a code belongs", () => {
+    expect(updateExpertProfileSchema.safeParse({ country: "India" }).success).toBe(false);
+  });
+
+  it("refuses a time zone that is not the chosen country's", () => {
+    const result = updateExpertProfileSchema.safeParse({
+      country: "IN",
+      timezone: "America/Los_Angeles",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Reported against the field the expert would change, not the country.
+      expect(result.error.issues[0]?.path).toEqual(["timezone"]);
+    }
+  });
+
+  it("accepts a time zone that belongs to the chosen country", () => {
+    const parsed = updateExpertProfileSchema.parse({ country: "IN", timezone: "Asia/Kolkata" });
+    expect(parsed.timezone).toBe("Asia/Kolkata");
+  });
+
+  it("does not object when only one half of the pair is being edited", () => {
+    // Changing just the zone is legitimate; the pair rule needs both to fire.
+    expect(updateExpertProfileSchema.safeParse({ timezone: "America/New_York" }).success).toBe(
+      true,
+    );
   });
 
   it("refuses an administrative field outright rather than dropping it", () => {
@@ -100,7 +134,7 @@ describe("updateExpertProfileSchema — requirement 8", () => {
       "payoutsEnabled",
       "verified",
     ]) {
-      const result = updateExpertProfileSchema.safeParse({ country: "India", [field]: "hijacked" });
+      const result = updateExpertProfileSchema.safeParse({ country: "IN", [field]: "hijacked" });
       expect(result.success, `${field} should be rejected`).toBe(false);
     }
   });

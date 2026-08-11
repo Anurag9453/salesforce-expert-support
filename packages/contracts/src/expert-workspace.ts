@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { refineCountryTimeZone } from "./experts.js";
+import { isCountryCode, TIME_ZONE_META } from "./geo.js";
 import {
   availabilityChangeSourceSchema,
   availabilityStatusSchema,
@@ -121,8 +123,18 @@ const optionalUrl = z.string().url().max(500).or(z.literal("")).optional();
  */
 export const updateExpertProfileSchema = z
   .object({
-    country: z.string().trim().min(2).max(64).optional(),
-    timezone: z.string().trim().min(3).max(64).optional(),
+    // Picklist values, same rule as the application (see experts.ts).
+    country: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .refine(isCountryCode, "Choose a country from the list")
+      .optional(),
+    timezone: z
+      .string()
+      .trim()
+      .refine((value) => value in TIME_ZONE_META, "Choose a time zone from the list")
+      .optional(),
     yearsExperience: z.coerce.number().int().min(0).max(60).optional(),
     professionalSummary: z.string().trim().min(80).max(4000).optional(),
     languages: z.array(z.string().min(2).max(10)).max(20).optional(),
@@ -131,7 +143,11 @@ export const updateExpertProfileSchema = z
     githubUrl: optionalUrl,
     employmentStatus: z.string().trim().max(160).optional(),
   })
-  .strict();
+  .strict()
+  // A profile edit can change country and zone independently, so the pair check
+  // has to run here too — otherwise someone moves country and keeps a zone that
+  // no longer belongs to it.
+  .superRefine(refineCountryTimeZone);
 export type UpdateExpertProfileInput = z.infer<typeof updateExpertProfileSchema>;
 
 /**
