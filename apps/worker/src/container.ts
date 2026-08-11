@@ -6,6 +6,7 @@ import {
   PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
   PrismaMatchingRepository,
+  PrismaNotificationRepository,
   PrismaPricingRepository,
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
@@ -20,6 +21,7 @@ import {
   DispatchNotifier,
   ExpertAvailabilityService,
   MatchingService,
+  NotificationService,
   systemClock,
   type JobScheduler,
   type Logger,
@@ -112,7 +114,10 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
         return new NoopRealtimeBus();
       case "postgres":
         return new PostgresRealtimeBus(
-          (sql, params) => prisma.$queryRawUnsafe(sql, ...params),
+          // $executeRawUnsafe, NOT $queryRawUnsafe: pg_notify() returns void and
+          // Prisma cannot deserialize a void column, so the query form fails
+          // every single time. See the PostgresRealtimeBus class comment.
+          (sql, params) => prisma.$executeRawUnsafe(sql, ...params),
           logger,
         );
       case "ably":
@@ -159,7 +164,16 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
       scheduler,
       clock: systemClock,
       logger,
-      notifier: new DispatchNotifier({ realtime, clock: systemClock, logger }),
+      notifier: new DispatchNotifier({
+        realtime,
+        clock: systemClock,
+        logger,
+        notifications: new NotificationService({
+          notifications: new PrismaNotificationRepository(prisma),
+          clock: systemClock,
+          logger,
+        }),
+      }),
       queues: {
         dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
         offerTimeout: QUEUES.OFFER_TIMEOUT,

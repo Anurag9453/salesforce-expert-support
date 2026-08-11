@@ -5,22 +5,26 @@ import {
   LocalFileStorage,
   MockPaymentGateway,
   MockPayoutProvider,
-  PgBossScheduler,
-  PrismaAttachmentRepository,
   NoopRealtimeBus,
+  PgBossScheduler,
   PostgresRealtimeBus,
   PostgresRealtimeHub,
+  PrismaAttachmentRepository,
   PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
-  PrismaMatchingRepository,
   PrismaExpertProfileRepository,
   PrismaExpertSkillRepository,
+  PrismaMatchingRepository,
+  PrismaNotificationRepository,
   PrismaPricingRepository,
+  PrismaSupportLeadRepository,
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
   PrismaUnitOfWork,
+  PrismaWebhookEventRepository,
   RulesProblemClassifier,
   SendOnlyBoss,
+  StripePaymentGateway,
 } from "@sfx/adapters";
 import { prisma } from "@sfx/db";
 import type { PrismaClient } from "@sfx/db";
@@ -34,6 +38,9 @@ import {
   ExpertProfileService,
   ExpertSkillService,
   MatchingService,
+  NotificationService,
+  PaymentWebhookService,
+  SupportLeadService,
   SupportRequestService,
   systemClock,
   type AttachmentRepository,
@@ -91,6 +98,9 @@ export interface Container {
   /** Null when realtime is off — the SSE route then holds the stream open and sends nothing. */
   readonly realtimeHub: PostgresRealtimeHub | null;
   readonly supportRequests: SupportRequestService;
+  readonly supportLeads: SupportLeadService;
+  readonly notifications: NotificationService;
+  readonly paymentWebhooks: PaymentWebhookService;
   /** Built lazily — it needs the taxonomy, which lives in the database. */
   buildClassifier(): Promise<ProblemClassifier>;
 }
@@ -100,6 +110,13 @@ let cached: Container | undefined;
 function build(): Container {
   const env = serverEnv();
   const logger = new ConsoleLogger(env.LOG_LEVEL, { service: "web" });
+  // Built here rather than inline in the returned object because the dispatch
+  // notifier needs the same instance.
+  const notificationService = new NotificationService({
+    notifications: new PrismaNotificationRepository(prisma),
+    clock: systemClock,
+    logger,
+  });
   const clock = systemClock;
   const uow = new PrismaUnitOfWork(prisma);
 
@@ -107,8 +124,16 @@ function build(): Container {
     switch (env.PAYMENT_PROVIDER) {
       case "mock":
         return new MockPaymentGateway();
-      // Phase 7a adds the real gateway once Q3 resolves. The exhaustive switch
-      // means adding a provider to the enum without an adapter fails typecheck.
+      case "stripe":
+        // The env schema has already refused to boot without both credentials,
+        // so these are non-null by the time we get here.
+        return new StripePaymentGateway({
+          secretKey: env.STRIPE_SECRET_KEY ?? "",
+          webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? "",
+          logger,
+        });
+      // The exhaustive switch means adding a provider to the enum without an
+      // adapter fails typecheck rather than falling through at runtime.
       default: {
         const never: never = env.PAYMENT_PROVIDER;
         throw new Error(`Unsupported PAYMENT_PROVIDER: ${String(never)}`);
@@ -160,7 +185,10 @@ function build(): Container {
         return new NoopRealtimeBus();
       case "postgres":
         return new PostgresRealtimeBus(
-          (sql, params) => prisma.$queryRawUnsafe(sql, ...params),
+          // $executeRawUnsafe, NOT $queryRawUnsafe: pg_notify() returns void and
+          // Prisma cannot deserialize a void column, so the query form fails
+          // every single time. See the PostgresRealtimeBus class comment.
+          (sql, params) => prisma.$executeRawUnsafe(sql, ...params),
           logger,
         );
       case "ably":
@@ -222,7 +250,12 @@ function build(): Container {
       scheduler,
       clock,
       logger,
-      notifier: new DispatchNotifier({ realtime, clock, logger }),
+      notifier: new DispatchNotifier({
+        realtime,
+        clock,
+        logger,
+        notifications: notificationService,
+      }),
       queues: {
         dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
         offerTimeout: QUEUES.OFFER_TIMEOUT,
@@ -242,6 +275,14 @@ function build(): Container {
       auditLog: uow.auditLog,
       clock,
     }),
+
+    notifications: notificationService,
+    paymentWebhooks: new PaymentWebhookService({
+      gateway: paymentGateway,
+      events: new PrismaWebhookEventRepository(prisma),
+      logger,
+    }),
+    supportLeads: new SupportLeadService({ leads: new PrismaSupportLeadRepository(prisma) }),
     supportRequests: new SupportRequestService({
       requests,
       taxonomy,

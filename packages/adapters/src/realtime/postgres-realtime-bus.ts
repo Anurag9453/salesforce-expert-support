@@ -47,7 +47,8 @@ import { Client } from "pg";
  * simpler and — because the filtering happens where authorization already lives
  * — safer.
  */
-const PG_CHANNEL = "sfx_realtime";
+/** Exported so a test can LISTEN on the same channel rather than a copy of it. */
+export const PG_CHANNEL = "sfx_realtime";
 
 export interface RealtimeSignal {
   /** Serialised channel, e.g. `expert:abc123`. */
@@ -87,6 +88,15 @@ export function serialiseChannel(channel: RealtimeChannel): string {
  * dispatch. The offer is already committed; if the signal is lost, the expert
  * sees it on their next poll or reload, which is a slower path to the same
  * outcome rather than a broken one.
+ *
+ * `exec` MUST be a *command* executor, not a query executor — Prisma's
+ * `$executeRawUnsafe`, not `$queryRawUnsafe`. `pg_notify()` returns `void`, and
+ * Prisma cannot deserialize a void column: `$queryRawUnsafe` fails 100% of the
+ * time with "Failed to deserialize column of type 'void'". Both containers
+ * originally passed `$queryRawUnsafe`, so every signal was swallowed by the
+ * catch below and realtime silently degraded to the fallback poll for the whole
+ * of Phase 6. The requirement-10 guarantee worked exactly as designed, which is
+ * precisely why nobody noticed — see the regression test beside this file.
  */
 export class PostgresRealtimeBus implements RealtimeBus {
   readonly name = "postgres";
