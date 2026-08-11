@@ -80,7 +80,9 @@ await step("typecheck", async () => (await run("pnpm", ["turbo", "run", "typeche
 // run defers it until after Postgres is confirmed up — see the longer note there.
 if (QUICK) {
   await step("test (no database — DB-backed suites excluded)", async () => {
-    return (await run("pnpm", ["turbo", "run", "test"], { env: { SKIP_DB_TESTS: "1" } })).code === 0;
+    return (
+      (await run("pnpm", ["turbo", "run", "test"], { env: { SKIP_DB_TESTS: "1" } })).code === 0
+    );
   });
 }
 

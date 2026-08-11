@@ -199,6 +199,16 @@ the other. Approve in the admin window, refresh the applicant's dashboard, and w
 
 **Blank page or a stale route after I change code** — `rm -rf apps/web/.next` and restart `pnpm dev`.
 
+**Every page 500s right after running `pnpm verify`** — `verify` runs `next build`, which writes to the
+same `apps/web/.next` the dev server is serving from, so the two clobber each other's chunks. The
+error looks alarming (`Cannot find module './vendor-chunks/…'`) and means nothing. Stop `pnpm dev`
+before `pnpm verify`, or `rm -rf apps/web/.next` and restart afterwards.
+
+**E2E failures that move around between runs** — a cold dev server compiles each route on first
+request, and that first-hit latency can outlast a short `OFFER_WINDOW_SECONDS`. Click through the app
+once, or hit the API routes with `curl`, before running `pnpm e2e`. Failures that change from run to
+run are almost always this rather than a real regression.
+
 **`pnpm db:migrate:fresh` asks for consent** — that is intentional. Prisma blocks destructive
 database actions when an AI agent is driving it. `pnpm verify` never needs it: it proves migrations
 apply cleanly by creating a throwaway database rather than dropping yours.
