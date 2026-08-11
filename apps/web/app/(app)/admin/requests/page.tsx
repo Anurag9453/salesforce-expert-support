@@ -2,7 +2,7 @@ import { can } from "@sfx/domain";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Badge, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
 import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
 
@@ -47,13 +47,11 @@ export default async function AdminRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">In-flight requests</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Everything still being matched, soonest deadline first. Open one to see why each expert
-          was or was not chosen, and to dispatch manually.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="Admin"
+        title="In-flight requests"
+        description="Everything still being matched, soonest deadline first. Open one to see why each expert was or was not chosen, and to dispatch manually."
+      />
 
       <Card>
         <CardHeader>

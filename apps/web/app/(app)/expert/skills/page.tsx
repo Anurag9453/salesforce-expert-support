@@ -1,10 +1,9 @@
 import type { TaxonomyCategory } from "@sfx/contracts";
 import { can, MAX_SKILLS_PER_EXPERT, PROFICIENCY_GUIDANCE } from "@sfx/domain";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SkillsManager } from "@/components/expert/skills-manager";
-import { Alert } from "@/components/ui";
+import { Alert, PageHeader } from "@/components/ui";
 import { toExpertSkillView } from "@/lib/availability-view";
 import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
@@ -40,16 +39,11 @@ export default async function ExpertSkillsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <Link href="/expert" className="text-sm text-ink-muted hover:text-ink">
-          ← Expert workspace
-        </Link>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight text-ink">Your skills</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          This is what we match on. Customers never browse experts — they describe a problem and we
-          route it, so the accuracy of this list is what puts the right work in front of you.
-        </p>
-      </header>
+      <PageHeader
+        back={{ href: "/expert", label: "Expert workspace" }}
+        title="Your skills"
+        description="This is what we match on. Customers never browse experts — they describe a problem and we route it, so the accuracy of this list is what puts the right work in front of you."
+      />
 
       <Alert tone="info" title="Self-declared, then verified">
         Everything here starts as your own assessment. Our review team verifies individual skills

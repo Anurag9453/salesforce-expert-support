@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  CountryTimeZoneFields,
   Field,
   Input,
   Textarea,
@@ -128,31 +129,17 @@ export function ExpertApplicationForm({
             <CardTitle>About you</CardTitle>
           </CardHeader>
           <CardBody className="grid gap-4 sm:grid-cols-2">
-            <Field id="country" label="Country" required error={fieldErrors.country}>
-              <Input
-                id="country"
-                name="country"
-                defaultValue={application.country ?? ""}
+            {/* Spans the row: two dependent selects that belong together. */}
+            <div className="sm:col-span-2">
+              <CountryTimeZoneFields
+                defaultCountry={application.country}
+                defaultTimezone={application.timezone}
+                countryError={fieldErrors.country}
+                timezoneError={fieldErrors.timezone}
                 disabled={readOnly}
-                invalid={Boolean(fieldErrors.country)}
+                required
               />
-            </Field>
-
-            <Field
-              id="timezone"
-              label="Time zone"
-              hint="IANA name, e.g. Asia/Kolkata"
-              required
-              error={fieldErrors.timezone}
-            >
-              <Input
-                id="timezone"
-                name="timezone"
-                defaultValue={application.timezone ?? ""}
-                disabled={readOnly}
-                invalid={Boolean(fieldErrors.timezone)}
-              />
-            </Field>
+            </div>
 
             <Field
               id="yearsExperience"

@@ -10,6 +10,7 @@ import {
   CardBody,
   CardHeader,
   CardTitle,
+  CountryTimeZoneFields,
   Field,
   Input,
   Textarea,
@@ -84,18 +85,15 @@ export function ProfileEditor({ profile }: { profile: ExpertApplication }) {
         </CardHeader>
         <CardBody className="space-y-5">
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field id="country" label="Country" required error={fieldErrors.country}>
-              <Input id="country" name="country" defaultValue={profile.country ?? ""} />
-            </Field>
-            <Field
-              id="timezone"
-              label="Time zone"
-              hint="IANA name, e.g. Asia/Kolkata."
-              required
-              error={fieldErrors.timezone}
-            >
-              <Input id="timezone" name="timezone" defaultValue={profile.timezone ?? ""} />
-            </Field>
+            <div className="sm:col-span-2">
+              <CountryTimeZoneFields
+                defaultCountry={profile.country}
+                defaultTimezone={profile.timezone}
+                countryError={fieldErrors.country}
+                timezoneError={fieldErrors.timezone}
+                required
+              />
+            </div>
           </div>
 
           <Field

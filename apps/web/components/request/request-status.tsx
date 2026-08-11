@@ -139,14 +139,16 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
         <div className="space-y-2">
           {narrative.detail && <p>{narrative.detail}</p>}
           {live && (
-            <p className="flex items-center gap-2 text-xs text-ink-subtle">
-              <span
-                className="inline-block size-1.5 animate-pulse rounded-full bg-accent"
-                aria-hidden="true"
-              />
-              {realtimeStatus === "live" ? "Updating live" : "Updating automatically"}
+            <p className="flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+              <Badge
+                tone="accent"
+                pulse={realtimeStatus === "live"}
+                dot={realtimeStatus !== "live"}
+              >
+                {realtimeStatus === "live" ? "Updating live" : "Updating automatically"}
+              </Badge>
               {request.secondsUntilDeadline > 0 &&
-                ` · about ${Math.ceil(request.secondsUntilDeadline / 60)} min left in the matching window`}
+                `about ${Math.ceil(request.secondsUntilDeadline / 60)} min left in the matching window`}
             </p>
           )}
         </div>
@@ -161,9 +163,9 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
         would return more.
       */}
       {request.matchedExpert && (
-        <section className="rounded-lg border border-available/25 bg-available-subtle p-4">
-          <h2 className="text-sm font-semibold text-ink">Who is helping you</h2>
-          <p className="mt-1.5 text-sm text-ink-muted">
+        <section className="animate-scale-in rounded-xl border border-available/30 bg-available-subtle p-5 shadow-raised">
+          <h2 className="font-display text-lg font-medium text-ink">Who is helping you</h2>
+          <p className="mt-2 text-sm leading-relaxed text-ink-muted">
             We matched you with a Salesforce specialist
             {request.matchedExpert.yearsExperience !== null &&
               ` with ${String(request.matchedExpert.yearsExperience)} years of experience`}
@@ -187,7 +189,7 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
         misread it.
       */}
       {aiSkills.length > 0 && (
-        <section className="rounded-lg border border-border bg-surface-raised p-4">
+        <section className="rounded-xl border border-border bg-surface-raised p-5 shadow-flat">
           <h2 className="text-sm font-semibold text-ink">What we think this is about</h2>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {aiSkills.map((skill) => (
@@ -207,7 +209,7 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
       )}
 
       {aiSkills.length === 0 && customerSkills.length > 0 && (
-        <section className="rounded-lg border border-border bg-surface-raised p-4">
+        <section className="rounded-xl border border-border bg-surface-raised p-5 shadow-flat">
           <h2 className="text-sm font-semibold text-ink">Matching on what you told us</h2>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {customerSkills.map((skill) => (

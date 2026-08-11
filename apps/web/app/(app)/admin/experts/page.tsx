@@ -1,9 +1,18 @@
 import type { ExpertStatus } from "@sfx/contracts";
+import { countryName } from "@sfx/contracts";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { can } from "@sfx/domain";
-import { Badge, Card, CardBody, CardHeader, CardTitle, ExpertStatusBadge } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  ExpertStatusBadge,
+  PageHeader,
+} from "@/components/ui";
 import { getContainer } from "@/lib/container";
 import { toExpertApplicationView } from "@/lib/expert-view";
 import { requireActor } from "@/lib/session";
@@ -40,12 +49,11 @@ export default async function AdminExpertsPage({
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Expert applications</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Oldest submission first — whoever has waited longest is reviewed first.
-        </p>
-      </header>
+      <PageHeader
+        eyebrow="Admin"
+        title="Expert applications"
+        description="Oldest submission first — whoever has waited longest is reviewed first."
+      />
 
       <nav className="flex flex-wrap gap-2" aria-label="Filter by status">
         {FILTERS.map((filter) => {
@@ -94,7 +102,8 @@ export default async function AdminExpertsPage({
                   >
                     <ExpertStatusBadge status={item.status} />
                     <span className="text-sm text-ink">
-                      {item.country ?? "—"} · {item.yearsExperience ?? 0} yrs
+                      {item.country ? countryName(item.country) : "—"} · {item.yearsExperience ?? 0}{" "}
+                      yrs
                     </span>
                     <span className="truncate text-xs text-ink-subtle">
                       {item.professionalSummary?.slice(0, 80) ?? "No summary yet"}

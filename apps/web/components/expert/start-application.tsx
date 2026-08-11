@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Alert, Button, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { Alert, Button, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
 
 /**
  * Entry point into the expert side for an existing account.
@@ -30,12 +30,10 @@ export function StartApplication() {
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Become an expert</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Paid Salesforce support, matched to your actual strengths.
-        </p>
-      </header>
+      <PageHeader
+        title="Become an expert"
+        description="Paid Salesforce support, matched to your actual strengths."
+      />
 
       {error && <Alert tone="danger">{error}</Alert>}
 
@@ -44,10 +42,23 @@ export function StartApplication() {
           <CardTitle>What happens next</CardTitle>
         </CardHeader>
         <CardBody className="space-y-4">
-          <ol className="space-y-2 text-sm text-ink-muted">
-            <li>1. Tell us about your Salesforce experience.</li>
-            <li>2. Submit for review — a human reads every application.</li>
-            <li>3. Once approved, you can go available and receive requests.</li>
+          {/* Numbered in display type, so the sequence reads as a path rather than a list. */}
+          <ol className="stagger space-y-3">
+            {[
+              "Tell us about your Salesforce experience.",
+              "Submit for review — a human reads every application.",
+              "Once approved, you can go available and receive requests.",
+            ].map((step, index) => (
+              <li key={step} className="flex gap-3 text-sm text-ink-muted">
+                <span
+                  data-numeric
+                  className="font-display shrink-0 text-base leading-tight font-medium text-accent/60"
+                >
+                  {index + 1}.
+                </span>
+                <span className="leading-relaxed">{step}</span>
+              </li>
+            ))}
           </ol>
           <Alert tone="info">
             This uses the account you are signed in with. You keep your customer access, and you can

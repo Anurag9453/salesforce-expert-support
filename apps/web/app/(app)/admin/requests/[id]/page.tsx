@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { DispatchPanel } from "@/components/admin/dispatch-panel";
-import { Alert, Badge, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { Alert, Badge, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
 import { getContainer } from "@/lib/container";
 import { buildMatchingAudit } from "@/lib/matching-view";
 import { requireActor } from "@/lib/session";
@@ -71,15 +71,23 @@ export default async function AdminRequestMatchingPage({
         <Link href="/admin/experts" className="text-xs text-ink-muted hover:text-ink">
           ← Admin
         </Link>
-        <header className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Matching inspection</h1>
-          <div className="flex items-center gap-2">
-            <Badge tone={active ? "accent" : "neutral"}>{audit.state}</Badge>
-            <span className="text-xs text-ink-subtle">
-              deadline {new Date(audit.matchDeadlineAt).toLocaleTimeString()}
-            </span>
-          </div>
-        </header>
+        <PageHeader
+          eyebrow="Admin"
+          title="Matching inspection"
+          actions={
+            <>
+              <Badge tone={active ? "accent" : "neutral"} dot={!active} pulse={active}>
+                {audit.state}
+              </Badge>
+              <span className="text-xs text-ink-subtle">
+                deadline{" "}
+                <time dateTime={audit.matchDeadlineAt}>
+                  {new Date(audit.matchDeadlineAt).toLocaleTimeString()}
+                </time>
+              </span>
+            </>
+          }
+        />
         <p className="mt-1 text-sm text-ink-muted">
           {audit.runs.length} run{audit.runs.length === 1 ? "" : "s"}, oldest first. The weights and
           floors shown are the ones that were in force at the time.

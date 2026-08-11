@@ -16,9 +16,11 @@ export default async function RegisterPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Create an account</h1>
+        <h1 className="font-display text-2xl font-medium tracking-tight text-ink">
+          Create an account
+        </h1>
         {/* One account covers both sides — requirement 1, said plainly. */}
-        <p className="mt-1 text-sm text-ink-muted">
+        <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
           One account for getting help and, if you choose, for giving it.
         </p>
       </div>

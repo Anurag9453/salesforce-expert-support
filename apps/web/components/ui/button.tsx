@@ -4,17 +4,29 @@ import { cn } from "@/lib/utils";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
+/**
+ * Primary carries a shallow two-stop gradient and a coloured shadow, which is
+ * what separates "the button you press" from "a blue rectangle". Shallow on
+ * purpose — a strong gradient reads as a consumer app.
+ */
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-accent text-ink-inverse hover:bg-accent-hover disabled:bg-ink-subtle",
-  secondary: "bg-surface-raised text-ink border border-border-strong hover:bg-surface-sunken",
+  primary: cn(
+    "bg-linear-to-b from-accent to-accent-hover text-ink-inverse shadow-accent",
+    "hover:-translate-y-px hover:brightness-110",
+    "disabled:from-ink-subtle disabled:to-ink-subtle disabled:shadow-none",
+  ),
+  secondary: cn(
+    "border border-border-strong bg-surface-raised text-ink shadow-flat",
+    "hover:-translate-y-px hover:border-accent/40 hover:shadow-raised",
+  ),
   ghost: "text-ink-muted hover:bg-surface-sunken hover:text-ink",
-  danger: "bg-danger text-ink-inverse hover:opacity-90",
+  danger: "bg-danger text-ink-inverse hover:-translate-y-px hover:brightness-110",
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
-  lg: "h-12 px-6 text-base",
+  sm: "h-8 gap-1.5 px-3 text-sm",
+  md: "h-10 gap-2 px-4 text-sm",
+  lg: "h-12 gap-2 px-6 text-[0.9375rem]",
 };
 
 /**
@@ -27,9 +39,10 @@ export function buttonClasses(
 ): string {
   const { variant = "primary", size = "md", className } = options;
   return cn(
-    "inline-flex items-center justify-center gap-2 rounded-md font-medium",
-    "transition-colors duration-150",
-    "disabled:cursor-not-allowed disabled:opacity-60",
+    "interactive inline-flex items-center justify-center rounded-md font-medium select-none",
+    "whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60",
+    // Cancels the hover lift, so a disabled control never feels pressable.
+    "disabled:translate-y-0 disabled:brightness-100",
     VARIANTS[variant],
     SIZES[size],
     className,

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge, Card, CardBody, buttonClasses } from "@/components/ui";
+import { Badge, buttonClasses, Card, CardBody, PageHeader } from "@/components/ui";
 import { getContainer } from "@/lib/container";
 import { requireActor } from "@/lib/session";
 
@@ -28,12 +28,14 @@ export default async function RequestsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Your requests</h1>
-        <Link href="/request-help" className={buttonClasses({ size: "sm" })}>
-          Get Expert Help
-        </Link>
-      </header>
+      <PageHeader
+        title="Your requests"
+        actions={
+          <Link href="/request-help" className={buttonClasses({ size: "md" })}>
+            Get Expert Help
+          </Link>
+        }
+      />
 
       {page.items.length === 0 ? (
         <Card>

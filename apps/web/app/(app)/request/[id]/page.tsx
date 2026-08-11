@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isDomainError } from "@sfx/domain";
-import { Badge, Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
 import { RequestStatus } from "@/components/request/request-status";
 import { getContainer } from "@/lib/container";
 import { loadMatchedExpert, toRequestView } from "@/lib/request-view";
 import { requireActor } from "@/lib/session";
+import { formatMoney } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Your request" };
 export const dynamic = "force-dynamic";
@@ -37,17 +37,17 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <Link href="/dashboard" className="text-xs text-ink-muted hover:text-ink">
-          ← Dashboard
-        </Link>
-        <h1 className="mt-2 text-xl font-semibold tracking-tight text-ink">{view.title}</h1>
-        <p className="mt-1 text-xs text-ink-subtle">
-          Raised {new Date(view.createdAt).toLocaleString()} ·{" "}
-          {formatPrice(view.price.amountMinor, view.price.currency)} for{" "}
-          {view.price.durationMinutes} minutes
-        </p>
-      </div>
+      <PageHeader
+        back={{ href: "/dashboard", label: "Dashboard" }}
+        title={view.title}
+        description={
+          <span className="text-xs text-ink-subtle">
+            Raised {new Date(view.createdAt).toLocaleString()} ·{" "}
+            {formatMoney(view.price.amountMinor, view.price.currency)} for{" "}
+            {view.price.durationMinutes} minutes
+          </span>
+        }
+      />
 
       <RequestStatus initial={view} />
 
@@ -78,12 +78,4 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
       </Card>
     </div>
   );
-}
-
-function formatPrice(minor: number, currency: string): string {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(minor / 100);
 }

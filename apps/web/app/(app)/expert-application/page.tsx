@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { can, isDomainError } from "@sfx/domain";
-import { Alert, Card, CardBody, ExpertStatusBadge } from "@/components/ui";
+import { Alert, Card, CardBody, ExpertStatusBadge, PageHeader } from "@/components/ui";
 import { ExpertApplicationForm } from "@/components/expert/application-form";
 import { StartApplication } from "@/components/expert/start-application";
 import { getContainer } from "@/lib/container";
@@ -42,15 +42,11 @@ export default async function ExpertApplicationPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Expert application</h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            Approval is what makes you eligible for matching — not the expert role itself.
-          </p>
-        </div>
-        <ExpertStatusBadge status={view.status} />
-      </header>
+      <PageHeader
+        title="Expert application"
+        description="Approval is what makes you eligible for matching — not the expert role itself."
+        actions={<ExpertStatusBadge status={view.status} />}
+      />
 
       {view.status === "SUBMITTED" || view.status === "UNDER_REVIEW" ? (
         <Alert tone="info" title="With our team">

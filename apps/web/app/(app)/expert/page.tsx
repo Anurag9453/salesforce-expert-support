@@ -13,6 +13,7 @@ import {
   CardBody,
   CardHeader,
   CardTitle,
+  PageHeader,
 } from "@/components/ui";
 import { toAvailabilityLogView, toAvailabilityView } from "@/lib/availability-view";
 import { toOfferView } from "@/lib/matching-view";
@@ -73,10 +74,7 @@ export default async function ExpertWorkspacePage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Expert workspace</h1>
-        <p className="mt-1 text-sm text-ink-muted">{actor.email}</p>
-      </header>
+      <PageHeader title="Expert workspace" eyebrow={actor.email} />
 
       <AvailabilityPanel
         initial={toAvailabilityView(availability)}

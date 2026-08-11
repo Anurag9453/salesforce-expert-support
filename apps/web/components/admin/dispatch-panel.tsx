@@ -152,7 +152,7 @@ export function DispatchPanel({
       </ul>
 
       {chosen && (
-        <div className="space-y-3 rounded-md border border-border bg-surface-sunken p-4">
+        <div className="animate-rise-in space-y-3 rounded-xl border border-border bg-surface-sunken p-4">
           {forcing ? (
             <Alert tone="warning" title="This is a Force Assign">
               The algorithm excluded {chosen.email} —{" "}

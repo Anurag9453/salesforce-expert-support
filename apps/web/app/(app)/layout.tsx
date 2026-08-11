@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ANONYMOUS, can } from "@sfx/domain";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { NavLinks, type NavLink } from "@/components/nav-links";
+import { NotificationBell } from "@/components/notification-bell";
 import { getActor } from "@/lib/session";
 
 /**
@@ -16,7 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const actor = await getActor();
   if (actor === ANONYMOUS) redirect("/login");
 
-  const links: Array<{ href: string; label: string }> = [
+  const links: NavLink[] = [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/requests", label: "Requests" },
   ];
@@ -38,29 +40,40 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-dvh">
-      <header className="border-b border-border bg-surface-raised">
-        <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-6">
-          <Link href="/dashboard" className="text-sm font-semibold tracking-tight text-ink">
+      {/*
+        Sticky and translucent. An expert watching for an offer scrolls their
+        skills list without losing the nav, and the blur keeps the header
+        legible over whatever passes beneath it.
+      */}
+      <header className="sticky top-0 z-40 border-b border-border bg-surface-raised/85 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-5 px-6">
+          <Link
+            href="/dashboard"
+            className="font-display interactive shrink-0 text-[0.9375rem] font-medium tracking-tight text-ink hover:text-accent"
+          >
             Salesforce Expert Support
           </Link>
-          <nav className="flex items-center gap-4" aria-label="Main">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm text-ink-muted transition-colors hover:text-ink"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="hidden text-xs text-ink-subtle sm:inline">{actor.email}</span>
+
+          {/*
+            Scrolls rather than wraps: an admin with six links on a narrow
+            window gets a swipeable strip instead of a header that grows to two
+            rows and shoves the page down.
+          */}
+          <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <NavLinks links={links} />
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden max-w-[12rem] truncate text-xs text-ink-subtle lg:inline">
+              {actor.email}
+            </span>
+            <NotificationBell />
             <SignOutButton />
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+
+      <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
     </div>
   );
 }

@@ -173,7 +173,7 @@ export function SkillsManager({
               onChange={(event) =>
                 setDraft((current) => ({ ...current, skillSlug: event.target.value }))
               }
-              className="h-10 w-full rounded-md border border-border-strong bg-surface-raised px-3 text-sm text-ink"
+              className="interactive h-10 w-full rounded-md border border-border-strong bg-surface-raised px-3 text-sm text-ink shadow-sunken hover:border-accent/40"
             >
               <option value="">Choose a skill…</option>
               {categories.map((category) => (

@@ -4,6 +4,7 @@ import { DECLINE_REASON_LABELS, type DeclineReasonCode, type OfferView } from "@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, CardBody, Field, Textarea } from "@/components/ui";
+import { formatMoney } from "@/lib/format";
 import { playOfferSound, showOfferNotification } from "@/lib/offer-alerts";
 import { reportTiming, useRealtime } from "@/lib/use-realtime";
 import { cn } from "@/lib/utils";
@@ -183,21 +184,31 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
 
   if (!offer) {
     return (
-      <Card>
-        <CardBody className="py-8 text-center">
-          <p className="text-sm text-ink-muted">
-            No requests right now. Keep this page open — an offer will appear here the moment one is
-            matched to you.
+      <Card className="overflow-hidden">
+        {/* A slow shimmer along the top edge: the page is listening, not stuck. */}
+        {realtimeStatus === "live" && <div className="shimmer h-0.5 w-full" aria-hidden="true" />}
+        <CardBody className="py-10 text-center">
+          <p className="font-display mx-auto max-w-sm text-lg leading-snug font-medium text-balance text-ink">
+            No requests right now.
+          </p>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-muted">
+            Keep this page open — an offer will appear here the moment one is matched to you.
           </p>
           {/* Honest about the transport, because "is this thing working?" is the
               question an expert waiting for work actually has. */}
-          <p className="mt-2 text-xs text-ink-subtle">
-            {realtimeStatus === "live"
-              ? "Connected — offers arrive instantly."
-              : realtimeStatus === "connecting"
-                ? "Connecting…"
-                : "Reconnecting — offers will still appear, just a few seconds later."}
-          </p>
+          <div className="mt-5 flex justify-center">
+            <Badge
+              tone={realtimeStatus === "live" ? "available" : "neutral"}
+              dot={realtimeStatus !== "live"}
+              pulse={realtimeStatus === "live"}
+            >
+              {realtimeStatus === "live"
+                ? "Connected — offers arrive instantly"
+                : realtimeStatus === "connecting"
+                  ? "Connecting…"
+                  : "Reconnecting — offers still appear, just a few seconds later"}
+            </Badge>
+          </div>
         </CardBody>
       </Card>
     );
@@ -205,159 +216,211 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
 
   // ── The offer ────────────────────────────────────────────────────────────
 
-  const urgent = remaining <= 15;
+  /*
+    The full window, derived from the two timestamps already on the wire rather
+    than from a constant — so the bar is correct whether production is running a
+    60-second window or a test run is using 20.
+  */
+  const windowSeconds = Math.max(
+    1,
+    Math.round((Date.parse(offer.offerExpiresAt) - Date.parse(offer.offeredAt)) / 1000),
+  );
+  /*
+    Proportional, not a flat 15 seconds. A quarter of the window matches the old
+    behaviour exactly at 60s and stops a 20-second test window from being red
+    from the moment it opens.
+  */
+  const urgent = remaining <= Math.max(5, Math.round(windowSeconds * 0.25));
   const primary = offer.skills.filter((skill) => skill.isPrimary);
   const secondary = offer.skills.filter((skill) => !skill.isPrimary);
 
   return (
     <section
       className={cn(
-        "rounded-lg border-2 p-5",
+        "animate-scale-in overflow-hidden rounded-xl border-2 shadow-lifted",
+        "transition-colors duration-500",
         urgent ? "border-danger bg-danger-subtle" : "border-accent bg-accent-subtle",
       )}
       aria-live="assertive"
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="size-2.5 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-            <Badge tone="accent">New request</Badge>
-            {offer.origin !== "ALGORITHMIC" && (
-              <Badge tone="warning">
-                {offer.origin === "ADMIN_FORCE_ASSIGN" ? "Sent by our team" : "Chosen for you"}
-              </Badge>
-            )}
-          </div>
-          <h2 className="mt-2 text-lg font-semibold tracking-tight text-ink">{offer.title}</h2>
-        </div>
-        <div className="text-right">
-          <p
-            className={cn(
-              "font-mono text-3xl font-semibold tabular-nums",
-              urgent ? "text-danger" : "text-ink",
-            )}
-          >
-            {remaining}s
-          </p>
-          <p className="text-xs text-ink-subtle">to answer</p>
-        </div>
+      {/*
+        The window as a depleting bar. Same number the countdown shows, in a form
+        that is readable from across a desk — but it is strictly redundant: the
+        seconds are written out beside it, so nothing here is conveyed by motion
+        or colour alone.
+      */}
+      <div className="h-1 w-full bg-border/60" aria-hidden="true">
+        <div
+          className={cn(
+            "h-full transition-[width] duration-1000 ease-linear",
+            urgent ? "bg-danger" : "bg-accent",
+          )}
+          style={{ width: `${Math.min(100, (remaining / windowSeconds) * 100)}%` }}
+        />
       </div>
 
-      {/*
+      <div className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={urgent ? "danger" : "accent"} pulse>
+                New request
+              </Badge>
+              {offer.origin !== "ALGORITHMIC" && (
+                <Badge tone="warning">
+                  {offer.origin === "ADMIN_FORCE_ASSIGN" ? "Sent by our team" : "Chosen for you"}
+                </Badge>
+              )}
+            </div>
+            <h2 className="font-display mt-2.5 text-xl leading-snug font-medium text-balance text-ink">
+              {offer.title}
+            </h2>
+          </div>
+          <div className="shrink-0 text-right">
+            <p
+              data-numeric
+              className={cn(
+                "font-display text-4xl leading-none font-medium transition-colors duration-300",
+                urgent ? "text-danger" : "text-ink",
+              )}
+            >
+              {remaining}
+              <span className="text-xl text-ink-subtle">s</span>
+            </p>
+            <p className="mt-1 text-xs tracking-wide text-ink-subtle uppercase">to answer</p>
+          </div>
+        </div>
+
+        {/*
         Requirement 13 from the expert's side. Being told "our team picked you and
         here is why" is a different experience from an offer that just appeared,
         and the difference matters most in the cases where an operator intervened.
       */}
-      {offer.adminNote && (
-        <Alert tone="info" title="A note from our team" className="mt-4">
-          {offer.adminNote}
-        </Alert>
-      )}
+        {offer.adminNote && (
+          <Alert tone="info" title="A note from our team" className="mt-4">
+            {offer.adminNote}
+          </Alert>
+        )}
 
-      <div className="mt-4 space-y-3 rounded-md border border-border bg-surface-raised p-4">
-        <p className="whitespace-pre-wrap text-sm text-ink">{offer.description}</p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {primary.map((skill) => (
-            <Badge key={skill.slug} tone="accent" title="The core skill this needs">
-              {skill.name}
-            </Badge>
-          ))}
-          {secondary.map((skill) => (
-            <Badge key={skill.slug}>{skill.name}</Badge>
-          ))}
-          {offer.difficulty && <Badge tone="neutral">{offer.difficulty.toLowerCase()}</Badge>}
+        <div className="mt-4 space-y-3.5 rounded-lg border border-border bg-surface-raised p-4 shadow-flat">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap text-ink">
+            {offer.description}
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {primary.map((skill) => (
+              <Badge key={skill.slug} tone="accent" title="The core skill this needs">
+                {skill.name}
+              </Badge>
+            ))}
+            {secondary.map((skill) => (
+              <Badge key={skill.slug}>{skill.name}</Badge>
+            ))}
+            {offer.difficulty && <Badge tone="neutral">{offer.difficulty.toLowerCase()}</Badge>}
+          </div>
+          <dl className="grid grid-cols-2 gap-4 border-t border-border pt-3.5 sm:grid-cols-[auto_auto_1fr] sm:gap-8">
+            <div>
+              <dt className="text-xs tracking-wide text-ink-subtle uppercase">Session</dt>
+              <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-ink">
+                {offer.durationMinutes} min
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs tracking-wide text-ink-subtle uppercase">You earn</dt>
+              <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-available">
+                {formatMoney(offer.payoutCents, offer.currency)}
+              </dd>
+            </div>
+          </dl>
         </div>
-        <dl className="flex gap-6 border-t border-border pt-3 text-sm">
-          <div>
-            <dt className="text-xs text-ink-subtle">Session</dt>
-            <dd className="text-ink">{offer.durationMinutes} minutes</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-subtle">You earn</dt>
-            <dd className="text-ink">₹{(offer.payoutCents / 100).toLocaleString("en-IN")}</dd>
-          </div>
-        </dl>
-      </div>
 
-      {error && (
-        <Alert tone="danger" className="mt-4">
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert tone="danger" className="mt-4">
+            {error}
+          </Alert>
+        )}
 
-      {declining ? (
-        <div className="mt-4 space-y-3 rounded-md border border-border bg-surface-raised p-4">
-          {/*
+        {declining ? (
+          <div className="animate-rise-in mt-4 space-y-3 rounded-lg border border-border bg-surface-raised p-4 shadow-flat">
+            {/*
             Requirement 9. The reason is genuinely optional: "Decline without a
             reason" is a real button, not a cancel link. An expert who must
             justify saying no starts saying yes to work they should not take.
           */}
-          <p className="text-sm font-medium text-ink">Anything you want to tell us? Optional.</p>
-          <div className="grid gap-1.5">
-            {(Object.keys(DECLINE_REASON_LABELS) as DeclineReasonCode[]).map((code) => (
-              <label
-                key={code}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2.5 rounded-md border p-2.5 text-sm",
-                  reason === code ? "border-accent bg-accent-subtle" : "border-border",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="decline-reason"
-                  checked={reason === code}
-                  onChange={() => setReason(code)}
-                  disabled={pending}
+            <p className="text-sm font-medium text-ink">Anything you want to tell us? Optional.</p>
+            <div className="grid gap-1.5">
+              {(Object.keys(DECLINE_REASON_LABELS) as DeclineReasonCode[]).map((code) => (
+                <label
+                  key={code}
+                  className={cn(
+                    "interactive flex cursor-pointer items-center gap-2.5 rounded-md border p-2.5 text-sm",
+                    reason === code
+                      ? "border-accent bg-accent-subtle"
+                      : "border-border hover:border-border-strong hover:bg-surface-sunken",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="decline-reason"
+                    checked={reason === code}
+                    onChange={() => setReason(code)}
+                    disabled={pending}
+                    className="accent-[var(--color-accent)]"
+                  />
+                  <span className="text-ink">{DECLINE_REASON_LABELS[code]}</span>
+                </label>
+              ))}
+            </div>
+            {reason === "OTHER" && (
+              <Field id="decline-note" label="In a few words" hint="Optional.">
+                <Textarea
+                  id="decline-note"
+                  rows={2}
+                  value={note}
+                  maxLength={500}
+                  onChange={(event) => setNote(event.target.value)}
                 />
-                <span className="text-ink">{DECLINE_REASON_LABELS[code]}</span>
-              </label>
-            ))}
+              </Field>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="danger"
+                disabled={pending}
+                onClick={() =>
+                  void respond({
+                    decision: "decline",
+                    ...(reason ? { reason } : {}),
+                    ...(reason === "OTHER" && note.trim() ? { note: note.trim() } : {}),
+                  })
+                }
+              >
+                {pending ? "Sending…" : reason ? "Decline" : "Decline without a reason"}
+              </Button>
+              <Button variant="ghost" disabled={pending} onClick={() => setDeclining(false)}>
+                Back
+              </Button>
+            </div>
           </div>
-          {reason === "OTHER" && (
-            <Field id="decline-note" label="In a few words" hint="Optional.">
-              <Textarea
-                id="decline-note"
-                rows={2}
-                value={note}
-                maxLength={500}
-                onChange={(event) => setNote(event.target.value)}
-              />
-            </Field>
-          )}
-          <div className="flex flex-wrap gap-2">
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-2.5">
             <Button
-              variant="danger"
+              size="lg"
+              className="min-w-32 flex-1 sm:flex-none"
               disabled={pending}
-              onClick={() =>
-                void respond({
-                  decision: "decline",
-                  ...(reason ? { reason } : {}),
-                  ...(reason === "OTHER" && note.trim() ? { note: note.trim() } : {}),
-                })
-              }
+              onClick={() => void respond({ decision: "accept" })}
             >
-              {pending ? "Sending…" : reason ? "Decline" : "Decline without a reason"}
+              {pending ? "Taking it…" : "Accept"}
             </Button>
-            <Button variant="ghost" disabled={pending} onClick={() => setDeclining(false)}>
-              Back
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => setDeclining(true)}
+            >
+              Decline
             </Button>
           </div>
-        </div>
-      ) : (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="lg" disabled={pending} onClick={() => void respond({ decision: "accept" })}>
-            {pending ? "Taking it…" : "Accept"}
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            disabled={pending}
-            onClick={() => setDeclining(true)}
-          >
-            Decline
-          </Button>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

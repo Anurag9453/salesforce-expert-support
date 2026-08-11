@@ -1,3 +1,4 @@
+import { countryName, TIME_ZONE_META } from "@sfx/contracts";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -10,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
   ExpertStatusBadge,
+  PageHeader,
 } from "@/components/ui";
 import { DecisionPanel } from "@/components/admin/decision-panel";
 import { SkillVerification } from "@/components/admin/skill-verification";
@@ -56,13 +58,20 @@ export default async function AdminExpertDetailPage({
         <Link href="/admin/experts" className="text-xs text-ink-muted hover:text-ink">
           ← All applications
         </Link>
-        <header className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Application review</h1>
-          <div className="flex items-center gap-2">
-            <ExpertStatusBadge status={view.status} />
-            {view.eligibleForMatching && <Badge tone="available">eligible for matching</Badge>}
-          </div>
-        </header>
+        <PageHeader
+          eyebrow="Admin"
+          title="Application review"
+          actions={
+            <>
+              <ExpertStatusBadge status={view.status} />
+              {view.eligibleForMatching && (
+                <Badge tone="available" dot>
+                  eligible for matching
+                </Badge>
+              )}
+            </>
+          }
+        />
       </div>
 
       <Card>
@@ -101,8 +110,17 @@ export default async function AdminExpertDetailPage({
             <dl className="space-y-3 text-sm">
               {(
                 [
-                  ["Country", view.country],
-                  ["Time zone", view.timezone],
+                  ["Country", view.country ? countryName(view.country) : null],
+                  // A reviewer wants "IST · India Standard Time", not a raw IANA
+                  // path they have to decode.
+                  [
+                    "Time zone",
+                    view.timezone
+                      ? [TIME_ZONE_META[view.timezone]?.abbr, TIME_ZONE_META[view.timezone]?.name]
+                          .filter(Boolean)
+                          .join(" · ") || view.timezone
+                      : null,
+                  ],
                   [
                     "Experience",
                     view.yearsExperience === null ? null : `${view.yearsExperience} years`,

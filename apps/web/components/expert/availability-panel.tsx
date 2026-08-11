@@ -3,6 +3,7 @@
 import type { AvailabilityView } from "@sfx/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button } from "@/components/ui";
+import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,17 +25,6 @@ import { cn } from "@/lib/utils";
 
 type Tone = "live" | "off" | "busy";
 
-/**
- * The window is configurable, and a naive minutes conversion reads as "0
- * minutes" whenever it is set short for a demo — which makes the one sentence
- * explaining the sweep say nothing.
- */
-function formatDuration(seconds: number): string {
-  if (seconds < 90) return `${seconds} seconds`;
-  const minutes = Math.round(seconds / 60);
-  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-}
-
 const PRESENTATION: Record<
   AvailabilityView["availabilityStatus"],
   { tone: Tone; badge: string; heading: string }
@@ -46,15 +36,9 @@ const PRESENTATION: Record<
 };
 
 const TONE_CLASSES: Record<Tone, string> = {
-  live: "border-available/40 bg-available-subtle",
+  live: "border-available/40 bg-available-subtle shadow-raised",
   off: "border-border-strong bg-surface-sunken",
-  busy: "border-accent/40 bg-accent-subtle",
-};
-
-const DOT_CLASSES: Record<Tone, string> = {
-  live: "bg-available",
-  off: "bg-ink-subtle",
-  busy: "bg-accent",
+  busy: "border-accent/40 bg-accent-subtle shadow-raised",
 };
 
 export function AvailabilityPanel({
@@ -162,7 +146,10 @@ export function AvailabilityPanel({
   return (
     <section className="space-y-3" aria-label="Availability">
       <div
-        className={cn("rounded-lg border p-5", TONE_CLASSES[presentation.tone])}
+        className={cn(
+          "animate-rise-in rounded-xl border p-5 transition-colors duration-500",
+          TONE_CLASSES[presentation.tone],
+        )}
         // Announced to screen readers when the sweep changes it out from under
         // the expert — the same information the colour carries.
         role="status"
@@ -170,22 +157,18 @@ export function AvailabilityPanel({
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "size-2.5 rounded-full",
-                  DOT_CLASSES[presentation.tone],
-                  online && "animate-pulse",
-                )}
-              />
-              <Badge
-                tone={online ? "available" : presentation.tone === "busy" ? "accent" : "neutral"}
-              >
-                {presentation.badge}
-              </Badge>
-            </div>
-            <h2 className="mt-2 text-lg font-semibold tracking-tight text-ink">
+            {/*
+              The pulsing dot now comes from Badge rather than a second local
+              copy — one implementation of "this state is live".
+            */}
+            <Badge
+              tone={online ? "available" : presentation.tone === "busy" ? "accent" : "neutral"}
+              dot={!online}
+              pulse={online}
+            >
+              {presentation.badge}
+            </Badge>
+            <h2 className="font-display mt-2.5 text-xl leading-snug font-medium text-balance text-ink">
               {presentation.heading}
             </h2>
 

@@ -1,9 +1,15 @@
 import { ADMIN_ONLY_PROFILE_FIELDS, can } from "@sfx/domain";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ProfileEditor } from "@/components/expert/profile-editor";
-import { Card, CardBody, CardHeader, CardTitle, ExpertStatusBadge } from "@/components/ui";
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  ExpertStatusBadge,
+  PageHeader,
+} from "@/components/ui";
 import { getContainer } from "@/lib/container";
 import { toExpertApplicationView } from "@/lib/expert-view";
 import { requireActor } from "@/lib/session";
@@ -28,19 +34,12 @@ export default async function ExpertProfilePage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <Link href="/expert" className="text-sm text-ink-muted hover:text-ink">
-          ← Expert workspace
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Your profile</h1>
-          <ExpertStatusBadge status={profile.status} />
-        </div>
-        <p className="mt-1 text-sm text-ink-muted">
-          Editing these does not send you back for review — none of them changes whether you are
-          eligible to be matched.
-        </p>
-      </header>
+      <PageHeader
+        back={{ href: "/expert", label: "Expert workspace" }}
+        title="Your profile"
+        description="Editing these does not send you back for review — none of them changes whether you are eligible to be matched."
+        meta={<ExpertStatusBadge status={profile.status} />}
+      />
 
       <ProfileEditor profile={profile} />
 
