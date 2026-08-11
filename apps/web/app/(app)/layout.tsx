@@ -37,6 +37,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (can(actor, "admin:read_requests")) {
     links.push({ href: "/admin/requests", label: "In flight" });
   }
+  if (can(actor, "admin:review_expert")) {
+    links.push({ href: "/admin/photos", label: "Photos" });
+  }
 
   return (
     <div className="min-h-dvh">

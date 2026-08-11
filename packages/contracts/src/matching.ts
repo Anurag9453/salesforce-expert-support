@@ -197,7 +197,14 @@ export const shortlistCandidateSchema = z.object({
   /** The attempt, not the expert. Selection targets an attempt so a stale card cannot re-open a closed one. */
   attemptId: cuidSchema,
   displayName: z.string(),
-  /** Null until they upload one; a missing photo never blocks being matched. */
+  /**
+   * A short-TTL signed URL, and ONLY ever for an APPROVED photo.
+   *
+   * Null covers three different situations that are identical from the
+   * customer's side — no photo, one awaiting review, or one that was rejected.
+   * Collapsing them here is deliberate: a customer must not be able to infer
+   * that an expert uploaded something and it was refused.
+   */
   photoUrl: z.string().nullable(),
   headline: z.string().nullable(),
   yearsExperience: z.number().int().nullable(),

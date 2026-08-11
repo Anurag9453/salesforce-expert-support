@@ -1,6 +1,7 @@
 import { ADMIN_ONLY_PROFILE_FIELDS, can } from "@sfx/domain";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { PhotoManager } from "@/components/expert/photo-manager";
 import { ProfileEditor } from "@/components/expert/profile-editor";
 import {
   Card,
@@ -13,6 +14,8 @@ import {
 import { getContainer } from "@/lib/container";
 import { toExpertApplicationView } from "@/lib/expert-view";
 import { requireActor } from "@/lib/session";
+import type { OwnPhotoView } from "@sfx/contracts";
+import { photoUrlFor } from "@/lib/photo-view";
 
 export const metadata: Metadata = { title: "Your profile" };
 export const dynamic = "force-dynamic";
@@ -29,8 +32,23 @@ export default async function ExpertProfilePage() {
   const actor = await requireActor();
   if (!actor.expert || !can(actor, "expert_profile:read_own")) redirect("/dashboard");
 
-  const record = await getContainer().expertProfiles.getOwn(actor);
+  const { expertProfiles, expertPhotos, storage } = getContainer();
+  const record = await expertProfiles.getOwn(actor);
   const profile = toExpertApplicationView(record);
+
+  // Their own photo, whatever its state — an expert needs to see a pending or
+  // rejected one, which is exactly what customers must never see.
+  const own = await expertPhotos.ownPhoto(actor);
+  const photo: OwnPhotoView | null = own
+    ? {
+        id: own.id,
+        status: own.status,
+        url: own.uploadedAt ? await photoUrlFor(storage, own.storageKey) : null,
+        reviewNote: own.reviewNote,
+        uploadedAt: own.uploadedAt?.toISOString() ?? null,
+        reviewedAt: own.reviewedAt?.toISOString() ?? null,
+      }
+    : null;
 
   return (
     <div className="space-y-6">
@@ -40,6 +58,15 @@ export default async function ExpertProfilePage() {
         description="Editing these does not send you back for review — none of them changes whether you are eligible to be matched."
         meta={<ExpertStatusBadge status={profile.status} />}
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Profile photo</CardTitle>
+        </CardHeader>
+        <CardBody>
+          <PhotoManager initial={photo} />
+        </CardBody>
+      </Card>
 
       <ProfileEditor profile={profile} />
 

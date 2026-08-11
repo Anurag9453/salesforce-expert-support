@@ -12,6 +12,7 @@ import {
   PrismaAttachmentRepository,
   PrismaCandidateRepository,
   PrismaExpertAvailabilityRepository,
+  PrismaExpertPhotoRepository,
   PrismaExpertProfileRepository,
   PrismaExpertSkillRepository,
   PrismaMatchingRepository,
@@ -35,6 +36,7 @@ import {
   ExpertAdminService,
   ExpertApplicationService,
   ExpertAvailabilityService,
+  ExpertPhotoService,
   ExpertProfileService,
   ExpertSkillService,
   MatchingService,
@@ -100,6 +102,7 @@ export interface Container {
   readonly supportRequests: SupportRequestService;
   readonly supportLeads: SupportLeadService;
   readonly notifications: NotificationService;
+  readonly expertPhotos: ExpertPhotoService;
   readonly paymentWebhooks: PaymentWebhookService;
   /** Built lazily — it needs the taxonomy, which lives in the database. */
   buildClassifier(): Promise<ProblemClassifier>;
@@ -277,6 +280,10 @@ function build(): Container {
     }),
 
     notifications: notificationService,
+    expertPhotos: new ExpertPhotoService({
+      photos: new PrismaExpertPhotoRepository(prisma),
+      clock,
+    }),
     paymentWebhooks: new PaymentWebhookService({
       gateway: paymentGateway,
       events: new PrismaWebhookEventRepository(prisma),

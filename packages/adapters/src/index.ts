@@ -13,6 +13,7 @@ export * from "./observability/console-logger.js";
 export * from "./persistence/prisma-repositories.js";
 export * from "./persistence/prisma-request-repositories.js";
 export * from "./persistence/prisma-notification-repository.js";
+export * from "./persistence/prisma-expert-photo-repository.js";
 export * from "./persistence/prisma-webhook-repository.js";
 export * from "./persistence/prisma-expert-repositories.js";
 export * from "./persistence/prisma-matching-repositories.js";

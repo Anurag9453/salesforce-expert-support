@@ -5,3 +5,5 @@ export * from "./expert-admin-service.js";
 export * from "./expert-availability-service.js";
 export * from "./expert-skill-service.js";
 export * from "./expert-profile-service.js";
+export * from "./expert-photo-service.js";
+export * from "./photo-validation.js";

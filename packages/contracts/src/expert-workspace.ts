@@ -169,3 +169,68 @@ export const expertWorkspaceViewSchema = z.object({
   skills: z.array(expertSkillViewSchema),
 });
 export type ExpertWorkspaceView = z.infer<typeof expertWorkspaceViewSchema>;
+
+// ── Profile photo, and its moderation ────────────────────────────────────────
+
+/**
+ * What an expert may upload as a profile photo.
+ *
+ * Raster only, and deliberately narrower than the attachment list:
+ *
+ *   - **No SVG.** It can carry script, and unlike an attachment — which is
+ *     served `content-disposition: attachment` precisely to stop it executing —
+ *     a profile photo is rendered inline in an `<img>`.
+ *   - **No GIF.** An animated avatar is a moderation problem nobody wants, and
+ *     it buys nothing on a candidate card.
+ */
+export const ALLOWED_PHOTO_TYPES = {
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/webp": [".webp"],
+} as const satisfies Record<string, readonly string[]>;
+
+/** 5 MB. Half the attachment limit — this is an avatar, not evidence. */
+export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
+export const photoModerationStatusSchema = z.enum([
+  "PENDING_REVIEW",
+  "APPROVED",
+  "REJECTED",
+  "REPLACED",
+]);
+export type PhotoModerationStatus = z.infer<typeof photoModerationStatusSchema>;
+
+export const presignPhotoSchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  contentType: z.enum(Object.keys(ALLOWED_PHOTO_TYPES) as [string, ...string[]]),
+  sizeBytes: z.coerce.number().int().positive().max(MAX_PHOTO_BYTES),
+});
+export type PresignPhotoInput = z.infer<typeof presignPhotoSchema>;
+
+/**
+ * The expert's own view of their photo — includes pending and rejected, because
+ * they need to know why it is not showing.
+ */
+export const ownPhotoViewSchema = z.object({
+  id: cuidSchema,
+  status: photoModerationStatusSchema,
+  /** Short-TTL signed URL. Null until the bytes have actually arrived. */
+  url: z.string().nullable(),
+  reviewNote: z.string().nullable(),
+  uploadedAt: z.string().nullable(),
+  reviewedAt: z.string().nullable(),
+});
+export type OwnPhotoView = z.infer<typeof ownPhotoViewSchema>;
+
+/**
+ * A moderation decision. A rejection must say why — an expert who is told only
+ * "rejected" cannot fix it, and will simply upload the same photo again.
+ */
+export const photoDecisionSchema = z.discriminatedUnion("decision", [
+  z.object({ decision: z.literal("approve") }),
+  z.object({
+    decision: z.literal("reject"),
+    note: z.string().trim().min(1, "Tell them what to change.").max(500),
+  }),
+]);
+export type PhotoDecisionInput = z.infer<typeof photoDecisionSchema>;

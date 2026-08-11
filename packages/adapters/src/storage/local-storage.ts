@@ -68,10 +68,22 @@ export class LocalFileStorage implements Storage {
     contentType: string;
     maxSizeBytes: number;
     ttlSeconds: number;
+    /**
+     * Which endpoint receives the bytes. Defaults to the attachment receiver.
+     *
+     * Different object types need different receivers, because the checks they
+     * must perform differ: an attachment is stored as-is and served as a
+     * download, while a profile photo is rendered inline and so has to be
+     * verified as a genuine raster image first. Naming the receiver here keeps
+     * one signing implementation rather than one adapter per object type.
+     */
+    uploadPath?: string;
   }): Promise<PresignedUpload> {
     const expiresAtMs = Date.now() + params.ttlSeconds * 1000;
     const signature = this.sign(params.key, expiresAtMs);
-    const url = new URL(`${this.options.baseUrl}/api/v1/attachments/upload`);
+    const url = new URL(
+      `${this.options.baseUrl}${params.uploadPath ?? "/api/v1/attachments/upload"}`,
+    );
     url.searchParams.set("key", params.key);
     url.searchParams.set("expires", String(expiresAtMs));
     url.searchParams.set("signature", signature);
@@ -84,9 +96,9 @@ export class LocalFileStorage implements Storage {
     };
   }
 
-  async presignDownload(key: string, ttlSeconds: number): Promise<string> {
+  async presignDownload(key: string, ttlSeconds: number, downloadPath?: string): Promise<string> {
     const expiresAtMs = Date.now() + ttlSeconds * 1000;
-    const url = new URL(`${this.options.baseUrl}/api/v1/attachments/download`);
+    const url = new URL(`${this.options.baseUrl}${downloadPath ?? "/api/v1/attachments/download"}`);
     url.searchParams.set("key", key);
     url.searchParams.set("expires", String(expiresAtMs));
     url.searchParams.set("signature", this.sign(key, expiresAtMs));

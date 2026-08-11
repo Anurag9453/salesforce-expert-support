@@ -18,7 +18,9 @@ export interface Storage {
     readonly contentType: string;
     readonly maxSizeBytes: number;
     readonly ttlSeconds: number;
+    /** Which endpoint receives the bytes; each object type validates differently. */
+    readonly uploadPath?: string;
   }): Promise<PresignedUpload>;
-  presignDownload(key: string, ttlSeconds: number): Promise<string>;
+  presignDownload(key: string, ttlSeconds: number, downloadPath?: string): Promise<string>;
   delete(key: string): Promise<void>;
 }
