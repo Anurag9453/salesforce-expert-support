@@ -1,6 +1,10 @@
 import type { Clock } from "../ports/clock.js";
 import type { Logger } from "../ports/logger.js";
 import type { RealtimeBus } from "../ports/realtime.js";
+import {
+  NOTIFICATION_EVENTS,
+  type NotificationService,
+} from "../notifications/notification-service.js";
 
 /**
  * The realtime signals the dispatch loop emits (§17, requirements 1–3, 12).
@@ -77,6 +81,15 @@ export interface DispatchNotifierDeps {
   readonly realtime: RealtimeBus;
   readonly clock: Clock;
   readonly logger: Logger;
+  /**
+   * Optional in-app notifications — the bell.
+   *
+   * Optional because realtime and the bell answer different questions and
+   * neither is required for dispatch to be correct: realtime is "something just
+   * happened", the bell is "what did I miss?". A deployment can run without the
+   * second and lose nothing durable.
+   */
+  readonly notifications?: NotificationService;
 }
 
 /**
@@ -110,6 +123,26 @@ export class DispatchNotifier {
       DISPATCH_EVENTS.OFFER_OPENED,
     );
     await this.notifyRequestChanged(params.supportRequestId, params.customerId);
+
+    /*
+      The durable counterpart to the doorbell above. Says that work arrived and
+      where to go, and nothing about what the work is — a notification is read on
+      a lock screen and over shoulders, so it gets the same treatment as the
+      realtime payload and the browser notification: no customer text, no score,
+      no other expert.
+    */
+    await this.deps.notifications?.recordForExpert({
+      expertProfileId: params.expertProfileId,
+      event: NOTIFICATION_EVENTS.OFFER_RECEIVED,
+      title: "A new request was matched to you",
+      body: "Open it to accept or decline.",
+      // The request itself, not the workspace. By the time an expert opens a
+      // notification the workspace may be showing a different offer, or none —
+      // so linking there means the one thing the notification was about is the
+      // one thing they cannot see.
+      href: `/expert/request/${params.supportRequestId}`,
+    });
+
     this.timing(TIMING_POINTS.REALTIME_PUBLISHED, {
       supportRequestId: params.supportRequestId,
       // How long between the offer row committing and the doorbell ringing.

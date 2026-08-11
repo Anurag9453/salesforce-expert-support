@@ -332,6 +332,19 @@ export class PrismaMatchingRepository implements MatchingRepository {
     return row ? toAttempt(row as AttemptRow) : null;
   }
 
+  async findAttemptForExpertOnRequest(params: {
+    expertProfileId: string;
+    supportRequestId: string;
+  }): Promise<MatchingAttemptRecord | null> {
+    const row = await this.db.matchingAttempt.findFirst({
+      where: {
+        expertProfileId: params.expertProfileId,
+        supportRequestId: params.supportRequestId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return row ? toAttempt(row) : null;
+  }
   async listRespondedExpertIds(supportRequestId: string): Promise<readonly string[]> {
     const rows = await this.db.matchingAttempt.findMany({
       where: { supportRequestId, status: { in: ["DECLINED", "TIMED_OUT"] } },

@@ -204,6 +204,22 @@ export interface MatchingRepository {
   /** The open offer held by an expert, across all requests. At most one. */
   findOpenOfferForExpert(expertProfileId: string): Promise<MatchingAttemptRecord | null>;
 
+  /**
+   * This expert's attempt on this request, whatever became of it.
+   *
+   * Doubles as the authorization rule for the expert-facing request page: no
+   * attempt means they were never considered, which means they may not read it.
+   * Expressing it as "find the row that grants access" rather than a separate
+   * permission check makes the two impossible to get out of step.
+   *
+   * Returns the most recent when a request has been through several rounds and
+   * the same expert appears more than once.
+   */
+  findAttemptForExpertOnRequest(params: {
+    readonly expertProfileId: string;
+    readonly supportRequestId: string;
+  }): Promise<MatchingAttemptRecord | null>;
+
   /** Experts who already declined or timed out here — permanently out. */
   listRespondedExpertIds(supportRequestId: string): Promise<readonly string[]>;
 

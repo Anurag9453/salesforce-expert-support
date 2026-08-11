@@ -479,6 +479,36 @@ export class MatchingService {
    * an expert who accepted successfully should never see an error because they
    * double-clicked.
    */
+  /**
+   * What an expert is allowed to read about one request.
+   *
+   * Used by the page a notification links to. The authorization is the lookup
+   * itself: an expert without an attempt on this request gets `NotFoundError`,
+   * identical to a request that does not exist. That is deliberate — a distinct
+   * "forbidden" would confirm the id is real, turning the endpoint into an
+   * oracle for enumerating other people's requests.
+   *
+   * Returns the attempt alongside the request so the caller can say what became
+   * of it: still open, taken by them, declined, or gone to someone else.
+   */
+  async requestDetailForExpert(
+    actor: Actor,
+    supportRequestId: string,
+  ): Promise<{ attempt: MatchingAttemptRecord; request: SupportRequestRecord }> {
+    authorize(actor, "offer:respond");
+    const expertProfileId = actor.expert?.profileId;
+    if (!expertProfileId) throw new NotFoundError("SupportRequest", supportRequestId);
+
+    const attempt = await this.deps.matching.findAttemptForExpertOnRequest({
+      expertProfileId,
+      supportRequestId,
+    });
+    if (!attempt) throw new NotFoundError("SupportRequest", supportRequestId);
+
+    const request = await this.requireRequest(supportRequestId);
+    return { attempt, request };
+  }
+
   async acceptOffer(actor: Actor, attemptId: string): Promise<MatchingAttemptRecord> {
     authorize(actor, "offer:respond");
     const now = this.deps.clock.now();

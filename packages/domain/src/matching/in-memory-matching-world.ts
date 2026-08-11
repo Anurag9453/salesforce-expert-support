@@ -245,6 +245,20 @@ export class FakeMatchingRepository implements MatchingRepository {
     );
   }
 
+  async findAttemptForExpertOnRequest(params: {
+    expertProfileId: string;
+    supportRequestId: string;
+  }): Promise<MatchingAttemptRecord | null> {
+    // Most recent last-wins, mirroring the adapter's `orderBy: createdAt desc`.
+    // A request can put the same expert through several rounds, and the page
+    // must show what happened most recently rather than the first attempt.
+    const matches = [...this.attempts.values()].filter(
+      (attempt) =>
+        attempt.expertProfileId === params.expertProfileId &&
+        attempt.supportRequestId === params.supportRequestId,
+    );
+    return matches.length > 0 ? (matches[matches.length - 1] ?? null) : null;
+  }
   async listRespondedExpertIds(supportRequestId: string): Promise<readonly string[]> {
     return this.attempts
       .filter(
