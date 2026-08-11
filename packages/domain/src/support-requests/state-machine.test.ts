@@ -50,6 +50,8 @@ describe("state machine — structure", () => {
   it("names only implemented guards", () => {
     const known = new Set([
       "hasEligibleCandidate",
+      "hasInterestedCandidates",
+      "candidateIsShortlisted",
       "offerStillOpen",
       "adminReasonProvided",
       "paymentAuthorizationValid",
@@ -162,5 +164,65 @@ describe("assertTransition", () => {
   it("returns the rule on a permitted move", () => {
     const rule = assertTransition("OFFERED", "ACCEPTED", "EXPERT");
     expect(rule.guard).toBe("offerStillOpen");
+  });
+});
+
+describe("shortlist flow — customer chooses, both sides confirm", () => {
+  it("runs SEARCHING → SHORTLISTED → AWAITING → ACCEPTED → PAYMENT_PENDING → READY", () => {
+    const path: RequestState[] = [
+      "SEARCHING",
+      "SHORTLISTED",
+      "AWAITING_EXPERT_CONFIRMATION",
+      "ACCEPTED",
+      "PAYMENT_PENDING",
+      "READY",
+    ];
+    for (let i = 0; i < path.length - 1; i += 1) {
+      expect(canTransition(path[i]!, path[i + 1]!), `${path[i]} → ${path[i + 1]}`).toBe(true);
+    }
+  });
+
+  it("lets the customer, and only the customer, pick from the shortlist", () => {
+    expect(canTransition("SHORTLISTED", "AWAITING_EXPERT_CONFIRMATION", "CUSTOMER")).toBe(true);
+    expect(canTransition("SHORTLISTED", "AWAITING_EXPERT_CONFIRMATION", "EXPERT")).toBe(false);
+    expect(canTransition("SHORTLISTED", "AWAITING_EXPERT_CONFIRMATION", "SYSTEM")).toBe(false);
+  });
+
+  it("lets the chosen expert, and only them, confirm", () => {
+    expect(canTransition("AWAITING_EXPERT_CONFIRMATION", "ACCEPTED", "EXPERT")).toBe(true);
+    expect(canTransition("AWAITING_EXPERT_CONFIRMATION", "ACCEPTED", "CUSTOMER")).toBe(false);
+  });
+
+  it("returns to the shortlist when the chosen expert lets the two minutes lapse", () => {
+    // The edge that stops a customer being stranded on a screen waiting for
+    // someone who has stopped answering.
+    expect(canTransition("AWAITING_EXPERT_CONFIRMATION", "SHORTLISTED", "SYSTEM")).toBe(true);
+  });
+
+  it("goes back to searching when the shortlist empties out", () => {
+    expect(canTransition("SHORTLISTED", "SEARCHING", "SYSTEM")).toBe(true);
+  });
+
+  it("can still miss the deadline while the customer is deciding", () => {
+    expect(canTransition("SHORTLISTED", "NO_EXPERT_FOUND", "SYSTEM")).toBe(true);
+  });
+
+  it("never charges before both sides have agreed", () => {
+    // The whole point of the mutual handshake: there is no edge from the
+    // shortlist, or from awaiting-confirmation, straight to payment.
+    expect(canTransition("SHORTLISTED", "PAYMENT_PENDING")).toBe(false);
+    expect(canTransition("AWAITING_EXPERT_CONFIRMATION", "PAYMENT_PENDING")).toBe(false);
+    expect(canTransition("SHORTLISTED", "READY")).toBe(false);
+  });
+
+  it("does not let a customer skip the expert's confirmation", () => {
+    expect(canTransition("SHORTLISTED", "ACCEPTED", "CUSTOMER")).toBe(false);
+  });
+
+  it("keeps direct dispatch intact alongside it", () => {
+    // The original loop must still work — this is an added path, not a swap.
+    expect(canTransition("SEARCHING", "OFFERED", "SYSTEM")).toBe(true);
+    expect(canTransition("OFFERED", "ACCEPTED", "EXPERT")).toBe(true);
+    expect(canTransition("ACCEPTED", "READY", "SYSTEM")).toBe(true);
   });
 });

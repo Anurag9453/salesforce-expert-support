@@ -26,11 +26,23 @@ export interface TransitionRule {
 }
 
 /**
- * D1: payment is authorized at submission, so the happy path runs
- * ACCEPTED → READY with no payment step after the expert has committed.
+ * Two paths reach ACCEPTED, and they exist side by side on purpose.
  *
- * PAYMENT_PENDING is retained but unreachable in V1 — the fallback path if a
- * future gateway cannot authorize-then-capture.
+ * **Direct dispatch** (SEARCHING → OFFERED → ACCEPTED) is the original loop: the
+ * platform picks, one expert holds an exclusive 60-second offer, payment was
+ * authorized at submission (D1) so ACCEPTED goes straight to READY.
+ *
+ * **Shortlist** (SEARCHING → SHORTLISTED → AWAITING_EXPERT_CONFIRMATION →
+ * ACCEPTED → PAYMENT_PENDING) is the customer-choice flow: experts raise a hand,
+ * the best three are shown, the customer picks one, and that expert has two
+ * minutes to confirm. Nothing is charged until both sides have said yes, which
+ * is why PAYMENT_PENDING — retained but unreachable under D1 — becomes the main
+ * path here rather than a fallback.
+ *
+ * The failure edges matter more than the happy ones. A customer who picks
+ * someone who then does not confirm must land back on the shortlist with that
+ * person removed, never stranded: hence AWAITING_EXPERT_CONFIRMATION →
+ * SHORTLISTED, and SHORTLISTED → SEARCHING when the list empties out.
  */
 export const TRANSITIONS: readonly TransitionRule[] = [
   {
@@ -52,6 +64,45 @@ export const TRANSITIONS: readonly TransitionRule[] = [
     actors: ["SYSTEM", "ADMIN"],
     guard: "hasEligibleCandidate",
     description: "Ranked candidate offered, or an admin assigned one (§C5).",
+  },
+  {
+    from: "SEARCHING",
+    to: "SHORTLISTED",
+    actors: ["SYSTEM"],
+    guard: "hasInterestedCandidates",
+    description: "Interest window closed with at least one candidate; the best three are shown.",
+  },
+  {
+    from: "SHORTLISTED",
+    to: "AWAITING_EXPERT_CONFIRMATION",
+    actors: ["CUSTOMER"],
+    guard: "candidateIsShortlisted",
+    description: "Customer chose one of the three; that expert has two minutes to confirm.",
+  },
+  {
+    from: "AWAITING_EXPERT_CONFIRMATION",
+    to: "ACCEPTED",
+    actors: ["EXPERT"],
+    description: "The chosen expert confirmed. Both sides have now agreed.",
+  },
+  {
+    from: "AWAITING_EXPERT_CONFIRMATION",
+    to: "SHORTLISTED",
+    actors: ["SYSTEM"],
+    description:
+      "The chosen expert let the two minutes lapse. They are dropped and the customer picks again from those left.",
+  },
+  {
+    from: "SHORTLISTED",
+    to: "SEARCHING",
+    actors: ["SYSTEM"],
+    description: "The shortlist emptied out — everyone lapsed or withdrew. Search again.",
+  },
+  {
+    from: "SHORTLISTED",
+    to: "NO_EXPERT_FOUND",
+    actors: ["SYSTEM"],
+    description: "The 15-minute deadline passed while the customer was deciding.",
   },
   {
     from: "SEARCHING",
@@ -97,7 +148,8 @@ export const TRANSITIONS: readonly TransitionRule[] = [
     from: "ACCEPTED",
     to: "PAYMENT_PENDING",
     actors: ["SYSTEM"],
-    description: "Fallback only — a gateway that cannot authorize before capture.",
+    description:
+      "Shortlist flow: both sides have agreed, so now the customer pays. Was a fallback under D1 (authorize-before-matching); it is the main path whenever the customer chose from a shortlist.",
   },
   {
     from: "PAYMENT_PENDING",

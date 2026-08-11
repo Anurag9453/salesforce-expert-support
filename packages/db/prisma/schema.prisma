@@ -93,6 +93,12 @@ enum RequestState {
   CLASSIFYING
   SEARCHING
   OFFERED
+  /// Three candidates are in front of the customer, waiting on their choice.
+  SHORTLISTED
+  /// The customer has chosen; that expert has two minutes to confirm. Neither
+  /// side has paid or committed anything yet, which is the point — no money
+  /// moves until both parties have said yes.
+  AWAITING_EXPERT_CONFIRMATION
   ACCEPTED
   PAYMENT_PENDING
   READY
@@ -133,6 +139,17 @@ enum AttemptStatus {
   EXCLUDED
   RANKED
   OFFERED
+  /// Raised a hand in the interest pool. NOT a commitment — the expert has said
+  /// they would take it, not that they have it. Distinct from ACCEPTED, which
+  /// only happens after the customer picks them and they confirm.
+  INTERESTED
+  /// Passed on the broadcast. Distinct from DECLINED: declining an exclusive
+  /// offer costs reliability, ignoring a broadcast should not.
+  NOT_INTERESTED
+  /// One of the three put in front of the customer.
+  SHORTLISTED
+  /// The customer chose them; their two-minute confirmation window is open.
+  CONFIRMING
   ACCEPTED
   DECLINED
   TIMED_OUT
@@ -238,17 +255,17 @@ model User {
   customer     CustomerProfile?
   expert       ExpertProfile?
 
-  reviewedExperts    ExpertProfile[]             @relation("ExpertReviewedBy")
-  verifiedSkills     ExpertSkill[]               @relation("SkillVerifiedBy")
-  stateChanges       SupportRequestStateHistory[]
+  reviewedExperts     ExpertProfile[]              @relation("ExpertReviewedBy")
+  verifiedSkills      ExpertSkill[]                @relation("SkillVerifiedBy")
+  stateChanges        SupportRequestStateHistory[]
   uploadedAttachments Attachment[]
-  cancelledRequests  SupportRequest[]            @relation("RequestCancelledBy")
-  auditLogs          AuditLog[]
-  notifications      Notification[]
-  ratingsGiven       Rating[]                    @relation("RatingAuthor")
-  participantEvents  SessionParticipantEvent[]
-  initiatedRefunds   Refund[]                    @relation("RefundInitiatedBy")
-  availabilityChanges ExpertAvailabilityLog[]    @relation("AvailabilityChangedBy")
+  cancelledRequests   SupportRequest[]             @relation("RequestCancelledBy")
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  ratingsGiven        Rating[]                     @relation("RatingAuthor")
+  participantEvents   SessionParticipantEvent[]
+  initiatedRefunds    Refund[]                     @relation("RefundInitiatedBy")
+  availabilityChanges ExpertAvailabilityLog[]      @relation("AvailabilityChangedBy")
 
   @@index([status])
   @@map("users")
@@ -328,6 +345,7 @@ model CustomerProfile {
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   requests SupportRequest[]
   sessions SupportSession[]
+  leads    SupportLead[]
 
   @@map("customer_profiles")
 }
@@ -336,12 +354,12 @@ model ExpertProfile {
   id     String @id @default(cuid())
   userId String @unique
 
-  status          ExpertStatus @default(DRAFT)
-  statusChangedAt DateTime     @default(now())
+  status           ExpertStatus @default(DRAFT)
+  statusChangedAt  DateTime     @default(now())
   /// Set when the application enters SUBMITTED; orders the admin review queue.
-  submittedAt     DateTime?
+  submittedAt      DateTime?
   reviewedByUserId String?
-  reviewNotes     String?
+  reviewNotes      String?
 
   /// Nullable because a DRAFT application is genuinely incomplete — the expert
   /// has started the wizard but not finished it. Completeness is enforced at the
@@ -362,11 +380,11 @@ model ExpertProfile {
   githubUrl        String?
   employmentStatus String?
 
-  termsAcceptedAt            DateTime?
-  confidentialityAcceptedAt  DateTime?
+  termsAcceptedAt           DateTime?
+  confidentialityAcceptedAt DateTime?
 
   // ── Presence (§C4) ────────────────────────────────────────────────────────
-  availabilityStatus AvailabilityStatus @default(OFFLINE)
+  availabilityStatus     AvailabilityStatus @default(OFFLINE)
   /// Dashboard pings every 45s while AVAILABLE. Eligibility requires this to be
   /// within `heartbeatStaleAfter` (default 3 min). A swept expert stays OFFLINE
   /// until they explicitly re-toggle — never auto-restored.
@@ -375,14 +393,23 @@ model ExpertProfile {
   lastAssignedAt         DateTime?
   lastSessionCompletedAt DateTime?
 
+  /// Shown on the shortlist card. Nullable because an expert can be approved
+  /// and matchable without one — a missing photo must never be a reason someone
+  /// cannot work.
+  photoUrl String?
+
   // ── Metrics, recomputed on session completion ─────────────────────────────
-  sessionsCompleted  Int @default(0)
-  ratingSum          Int @default(0)
-  ratingCount        Int @default(0)
+  /// "Hours worked" on the shortlist card, stored in minutes so it stays an
+  /// integer. Zero for everyone until sessions ship (Phase 8), which is why the
+  /// card says "new to the platform" rather than "0 hours".
+  minutesDelivered   Int  @default(0)
+  sessionsCompleted  Int  @default(0)
+  ratingSum          Int  @default(0)
+  ratingCount        Int  @default(0)
   /// Offers to experts swept offline are NOT counted here — a presence problem
   /// must not damage someone's reliability score.
-  offersReceived     Int @default(0)
-  offersAccepted     Int @default(0)
+  offersReceived     Int  @default(0)
+  offersAccepted     Int  @default(0)
   avgResponseSeconds Int?
 
   /// Provider-neutral (§C2). Populated in Phase 7b.
@@ -395,13 +422,13 @@ model ExpertProfile {
   user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   reviewedBy User? @relation("ExpertReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
-  skills            ExpertSkill[]
-  assignedRequests  SupportRequest[]        @relation("RequestAssignedExpert")
-  matchingAttempts  MatchingAttempt[]
-  sessions          SupportSession[]
-  availabilityLog   ExpertAvailabilityLog[]
-  ledgerEntries     EarningsLedgerEntry[]
-  ratingsReceived   Rating[]                @relation("RatingSubject")
+  skills           ExpertSkill[]
+  assignedRequests SupportRequest[]        @relation("RequestAssignedExpert")
+  matchingAttempts MatchingAttempt[]
+  sessions         SupportSession[]
+  availabilityLog  ExpertAvailabilityLog[]
+  ledgerEntries    EarningsLedgerEntry[]
+  ratingsReceived  Rating[]                @relation("RatingSubject")
 
   @@index([status, availabilityStatus])
   @@index([availabilityStatus, lastHeartbeatAt])
@@ -435,19 +462,19 @@ model Category {
 }
 
 model Skill {
-  id          String  @id @default(cuid())
-  slug        String  @unique
+  id          String   @id @default(cuid())
+  slug        String   @unique
   name        String
   categoryId  String
   /// Feeds the classifier prompt so "LWC" resolves to "Lightning Web Components".
   aliases     String[] @default([])
   description String?
-  isActive    Boolean @default(true)
+  isActive    Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  category     Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category     Category              @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   expertSkills ExpertSkill[]
   requestLinks SupportRequestSkill[]
 
@@ -456,14 +483,14 @@ model Skill {
 }
 
 model ExpertSkill {
-  id              String           @id @default(cuid())
-  expertProfileId String
-  skillId         String
+  id               String           @id @default(cuid())
+  expertProfileId  String
+  skillId          String
   proficiencyLevel ProficiencyLevel
-  yearsExperience Int              @default(0)
-  verified        Boolean          @default(false)
+  yearsExperience  Int              @default(0)
+  verified         Boolean          @default(false)
   verifiedByUserId String?
-  verifiedAt      DateTime?
+  verifiedAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -489,10 +516,10 @@ model SupportRequest {
   description String
   urgency     Urgency @default(INSTANT)
 
-  state           RequestState @default(CREATED)
-  stateEnteredAt  DateTime     @default(now())
+  state          RequestState @default(CREATED)
+  stateEnteredAt DateTime     @default(now())
   /// Optimistic concurrency guard; bumped by every transition().
-  version         Int          @default(0)
+  version        Int          @default(0)
 
   primaryCategoryId String?
   difficulty        Difficulty?
@@ -508,10 +535,10 @@ model SupportRequest {
   assignedExpertId String?
 
   // ── Price snapshot, frozen at creation (§21) ──────────────────────────────
-  pricingTierId          String
-  quotedPriceCents       Int
-  currency               String @default("INR")
-  quotedPlatformFeeCents Int
+  pricingTierId           String
+  quotedPriceCents        Int
+  currency                String @default("INR")
+  quotedPlatformFeeCents  Int
   quotedExpertPayoutCents Int
 
   /// Provider-neutral authorization handle (§C2).
@@ -635,7 +662,7 @@ model MatchingRun {
 }
 
 model MatchingAttempt {
-  id               String        @id @default(cuid())
+  id               String @id @default(cuid())
   matchingRunId    String
   supportRequestId String
   expertProfileId  String
@@ -660,7 +687,7 @@ model MatchingAttempt {
   /// the first, so an admin sees everything wrong at once.
   exclusionReasons String[] @default([])
 
-  offeredAt DateTime?
+  offeredAt       DateTime?
   /// §15 — the offer deadline as a stored fact rather than a scheduled job.
   ///
   /// Requirement 8: a worker restart, a duplicate job delivery, or a browser
@@ -731,15 +758,15 @@ model SupportSession {
   startedAt                DateTime?
   endedAt                  DateTime?
 
-  priceCents       Int
-  platformFeeCents Int
+  priceCents        Int
+  platformFeeCents  Int
   expertPayoutCents Int
-  currency         String @default("INR")
+  currency          String @default("INR")
 
-  resolutionStatus ResolutionStatus?
+  resolutionStatus              ResolutionStatus?
   /// Private by default (§22). Never returned to the customer unless the flag is set.
   expertNotes                   String?
-  expertNotesSharedWithCustomer Boolean @default(false)
+  expertNotesSharedWithCustomer Boolean           @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -758,11 +785,11 @@ model SupportSession {
 
 /// Payment capture is gated on real participation, not on self-report.
 model SessionParticipantEvent {
-  id        String               @id @default(cuid())
-  sessionId String
-  userId    String
-  eventType ParticipantEventType
-  occurredAt DateTime            @default(now())
+  id         String               @id @default(cuid())
+  sessionId  String
+  userId     String
+  eventType  ParticipantEventType
+  occurredAt DateTime             @default(now())
 
   session SupportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user    User           @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -794,18 +821,59 @@ model Rating {
 // §3.6 Money
 // ────────────────────────────────────────────────────────────────────────────
 
+/// TIER 3 — long-term support is not a product yet.
+///
+/// The entry screen offers it, so something has to catch the requirement; this
+/// is that and nothing more. Deliberately no state machine, no matching, no
+/// pricing: a lead is a note that someone asked, and inventing a workflow for a
+/// product that has not been designed would be worse than an empty table.
+///
+/// `summary` is redacted at intake exactly like a support request — the same
+/// prohibition on credentials and customer data applies to anything a customer
+/// types into this platform.
+model SupportLead {
+  id         String @id @default(cuid())
+  customerId String
+
+  summary String
+
+  /// Set when a human has actually followed up, so the queue is drainable.
+  contactedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([contactedAt, createdAt])
+  @@map("support_leads")
+}
+
 model PricingTier {
-  id                 String  @id @default(cuid())
-  name               String
-  durationMinutes    Int
-  priceCents         Int
-  currency           String  @default("INR")
+  id                       String    @id @default(cuid())
+  name                     String
+  durationMinutes          Int
+  /// What the customer is charged, inclusive of the processing allowance below.
+  priceCents               Int
+  /// The slice of `priceCents` that exists to cover card processing.
+  ///
+  /// The platform fee applies to `priceCents - processingAllowanceCents`; this
+  /// part goes wholly to the platform. Without it the platform keeps only 10% of
+  /// any price rise and so cannot recover a cost it alone bears — recovering
+  /// $0.88 of processing through price would need the price to rise $12.39. See
+  /// `splitSessionPrice`.
+  ///
+  /// Deliberately part of the price and never a checkout line item: a visible
+  /// card surcharge is regulated (prohibited for UK consumers, restricted on
+  /// Indian debit cards, conditional in the US) while a price is just a price.
+  processingAllowanceCents Int       @default(0)
+  currency                 String    @default("INR")
   /// Basis points (2000 = 20.00%) — integer, so the platform cut can never
   /// acquire a floating-point rounding error.
-  platformFeeBps     Int
-  isActive           Boolean @default(true)
-  effectiveFrom      DateTime @default(now())
-  effectiveTo        DateTime?
+  platformFeeBps           Int
+  isActive                 Boolean   @default(true)
+  effectiveFrom            DateTime  @default(now())
+  effectiveTo              DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -845,13 +913,13 @@ model Payment {
 }
 
 model Refund {
-  id          String       @id @default(cuid())
-  paymentId   String
-  providerRef String       @unique
-  amountCents Int
-  reason      String
+  id                String       @id @default(cuid())
+  paymentId         String
+  providerRef       String       @unique
+  amountCents       Int
+  reason            String
   initiatedByUserId String?
-  status      RefundStatus @default(PENDING)
+  status            RefundStatus @default(PENDING)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -896,10 +964,10 @@ model EarningsLedgerEntry {
 // ────────────────────────────────────────────────────────────────────────────
 
 model PlatformConfiguration {
-  id              String @id @default(cuid())
-  key             String @unique
+  id              String  @id @default(cuid())
+  key             String  @unique
   value           Json
-  version         Int    @default(1)
+  version         Int     @default(1)
   updatedByUserId String?
 
   createdAt DateTime @default(now())

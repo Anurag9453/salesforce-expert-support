@@ -1,4 +1,4 @@
-import { createRequestSchema } from "@sfx/contracts";
+import { createRequestSchema, DEFAULT_CURRENCY } from "@sfx/contracts";
 import { describeFindings, RATE_LIMITS } from "@sfx/domain";
 import { apiOk, handleRoute, parseBody } from "@/lib/route-helpers";
 import { getContainer } from "@/lib/container";
@@ -14,7 +14,7 @@ export async function GET() {
     const { supportRequests, attachments, pricing } = getContainer();
 
     const page = await supportRequests.listForCustomer(actor, { limit: 20 });
-    const tiers = await pricing.listActiveTiers("INR");
+    const tiers = await pricing.listActiveTiers(DEFAULT_CURRENCY);
     const durationById = new Map(tiers.map((tier) => [tier.id, tier.durationMinutes]));
 
     const items = await Promise.all(

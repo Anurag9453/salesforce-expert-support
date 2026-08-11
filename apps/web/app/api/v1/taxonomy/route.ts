@@ -1,3 +1,4 @@
+import { DEFAULT_CURRENCY } from "@sfx/contracts";
 import type { PricingTierView, TaxonomyCategory } from "@sfx/contracts";
 import { apiOk, handleRoute } from "@/lib/route-helpers";
 import { getContainer } from "@/lib/container";
@@ -19,7 +20,7 @@ export async function GET() {
     const [categories, skills, tiers] = await Promise.all([
       taxonomy.listActiveCategories(),
       taxonomy.listActiveSkills(),
-      pricing.listActiveTiers("INR"),
+      pricing.listActiveTiers(DEFAULT_CURRENCY),
     ]);
 
     const grouped: TaxonomyCategory[] = categories.map((category) => ({

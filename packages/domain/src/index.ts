@@ -22,3 +22,6 @@ export * from "./security/index.js";
 export * from "./classification/index.js";
 export * from "./support-requests/index.js";
 export * from "./matching/index.js";
+export * from "./notifications/notification-service.js";
+export * from "./billing/expert-fees.js";
+export * from "./payments/webhook-service.js";

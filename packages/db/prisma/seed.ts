@@ -292,25 +292,75 @@ async function seedConfiguration(): Promise<void> {
 }
 
 async function seedPricing(): Promise<void> {
-  // PLACEHOLDER VALUES — Q2 is still open. Deliberately obvious round numbers so
-  // nobody mistakes them for a decision. The price snapshot on SupportRequest
-  // means changing these later never rewrites historical requests.
+  // Decided prices, not placeholders. USD is the launch price list; the fee
+  // split stays 25% across all three durations.
+  //
+  // There is deliberately no INR list here. The currency decision was USD *and*
+  // INR as two independently-set price lists with no exchange rate anywhere, so
+  // INR cannot be seeded by converting these numbers — it needs its own decided
+  // prices. Until then, any pre-existing INR tiers are deactivated rather than
+  // deleted, so historical requests that reference them still resolve.
+  // 10% of every session. The other revenue stream is the expert's per-5-sessions
+  // fee, which matters more than it looks: after card processing this 10% nets
+  // closer to 6%, and on the $20 tier the fixed processing charge alone eats
+  // nearly half of it. The expert fee is the only part of revenue that is not
+  // taxed per transaction.
+  const PLATFORM_FEE_BPS = 1000;
+
+  // priceCents is what the customer pays. processingAllowanceCents is the slice
+  // of it covering card processing, which goes wholly to the platform — the 10%
+  // applies to the difference, so the expert's payout is exactly what it would
+  // have been at $20 / $35 / $50.
   const tiers = [
-    { name: "30-minute session", durationMinutes: 30, priceCents: 100000, platformFeeBps: 2500 },
-    { name: "60-minute session", durationMinutes: 60, priceCents: 180000, platformFeeBps: 2500 },
+    {
+      name: "30-minute session",
+      durationMinutes: 30,
+      priceCents: 2100,
+      processingAllowanceCents: 100,
+      platformFeeBps: PLATFORM_FEE_BPS,
+    },
+    {
+      name: "60-minute session",
+      durationMinutes: 60,
+      priceCents: 3635,
+      processingAllowanceCents: 135,
+      platformFeeBps: PLATFORM_FEE_BPS,
+    },
+    {
+      name: "120-minute session",
+      durationMinutes: 120,
+      priceCents: 5180,
+      processingAllowanceCents: 180,
+      platformFeeBps: PLATFORM_FEE_BPS,
+    },
   ];
 
   for (const tier of tiers) {
     const existing = await prisma.pricingTier.findFirst({
-      where: { durationMinutes: tier.durationMinutes, currency: "INR" },
+      where: { durationMinutes: tier.durationMinutes, currency: "USD" },
     });
     if (existing) {
-      await prisma.pricingTier.update({ where: { id: existing.id }, data: tier });
+      await prisma.pricingTier.update({
+        where: { id: existing.id },
+        data: { ...tier, isActive: true },
+      });
     } else {
-      await prisma.pricingTier.create({ data: { ...tier, currency: "INR" } });
+      await prisma.pricingTier.create({ data: { ...tier, currency: "USD" } });
     }
   }
-  console.warn(`  pricing: ${tiers.length} placeholder tiers (Q2 open)`);
+
+  // Retire the old INR placeholders (₹1,000 / ₹1,800). `isActive: false` keeps
+  // the rows resolvable for requests that already quoted them — deleting a tier
+  // a SupportRequest points at would break its price snapshot.
+  const retired = await prisma.pricingTier.updateMany({
+    where: { currency: { not: "USD" }, isActive: true },
+    data: { isActive: false, effectiveTo: new Date() },
+  });
+
+  console.warn(
+    `  pricing: ${tiers.length} USD tiers` +
+      (retired.count > 0 ? `, ${retired.count} non-USD tier(s) retired` : ""),
+  );
 }
 
 async function main(): Promise<void> {

@@ -180,3 +180,53 @@ export const pricingTierViewSchema = z.object({
   currency: currencyCodeSchema,
 });
 export type PricingTierView = z.infer<typeof pricingTierViewSchema>;
+
+// ── Long-term support (lead capture only) ────────────────────────────────────
+
+/**
+ * The word ceiling the intake screen enforces.
+ *
+ * Words, not characters, because that is what the customer was asked for. The
+ * schema still bounds characters — `MAX_DESCRIPTION_LENGTH` — since a word count
+ * is not a safe limit on its own: one "word" can be arbitrarily long.
+ */
+export const MAX_DESCRIPTION_WORDS = 1000;
+
+/** Whitespace-separated tokens. Deliberately simple, and identical on both sides. */
+export function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
+}
+
+/**
+ * Long-term support is not a product yet, so this captures a requirement and
+ * promises nothing. No pricing, no matching, no state machine — see the
+ * `SupportLead` comment in the schema.
+ */
+export const createSupportLeadSchema = z.object({
+  summary: z
+    .string()
+    .trim()
+    .min(MIN_DESCRIPTION_LENGTH, "Tell us a little about what you need.")
+    .max(MAX_DESCRIPTION_LENGTH),
+});
+export type CreateSupportLeadInput = z.infer<typeof createSupportLeadSchema>;
+
+export const supportLeadViewSchema = z.object({
+  id: cuidSchema,
+  summary: z.string(),
+  createdAt: z.string(),
+});
+export type SupportLeadView = z.infer<typeof supportLeadViewSchema>;
+
+/**
+ * What we ask a customer for before they may submit a requirement.
+ *
+ * Two fields. No password — see the guest intake route for why the identity is
+ * still real even though the signup form is not.
+ */
+export const guestIntakeSchema = z.object({
+  name: z.string().trim().min(1, "Tell us what to call you.").max(120),
+  email: z.string().trim().toLowerCase().email("That does not look like an email address."),
+});
+export type GuestIntakeInput = z.infer<typeof guestIntakeSchema>;

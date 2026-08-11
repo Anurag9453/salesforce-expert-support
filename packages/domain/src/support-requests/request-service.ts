@@ -13,7 +13,7 @@ import type {
   TaxonomyRepository,
 } from "../ports/request-repositories.js";
 import { scanForSecrets, type SecretFinding } from "../security/secret-scanner.js";
-import { splitFee } from "../shared/money.js";
+import { splitSessionPrice } from "../shared/money.js";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../shared/errors.js";
 import { assertTransition, isTerminal } from "./state-machine.js";
 
@@ -113,10 +113,13 @@ export class SupportRequestService {
     // ── Price from the server's own tier, never from the request body ────────
     const tier = await this.deps.pricing.findTierById(input.pricingTierId);
     if (!tier) throw new NotFoundError("PricingTier", input.pricingTierId);
-    const { platformFee, expertPayout } = splitFee(
-      { amountMinor: tier.priceCents, currency: tier.currency },
-      tier.platformFeeBps,
-    );
+    // The fee applies to the price minus its processing allowance; the
+    // allowance is platform revenue in full. See `splitSessionPrice`.
+    const { platformTotal, expertPayout } = splitSessionPrice({
+      charged: { amountMinor: tier.priceCents, currency: tier.currency },
+      processingAllowanceMinor: tier.processingAllowanceCents,
+      platformFeeBps: tier.platformFeeBps,
+    });
 
     // ── Resolve assistive selections; unknown slugs are ignored, not fatal ───
     const selectedSkills =
@@ -150,7 +153,7 @@ export class SupportRequestService {
       pricingTierId: tier.id,
       quotedPriceCents: tier.priceCents,
       currency: tier.currency,
-      quotedPlatformFeeCents: platformFee.amountMinor,
+      quotedPlatformFeeCents: platformTotal.amountMinor,
       quotedExpertPayoutCents: expertPayout.amountMinor,
       matchDeadlineAt: new Date(now.getTime() + this.deps.matchingWindowMinutes * 60_000),
       paymentAuthorizationRef: authorization.providerRef,

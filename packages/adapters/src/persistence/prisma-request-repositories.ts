@@ -10,6 +10,8 @@ import type {
   PricingTierRecord,
   SkillRecord,
   StateTransitionInput,
+  SupportLeadRecord,
+  SupportLeadRepository,
   SupportRequestRecord,
   SupportRequestRepository,
   TaxonomyRepository,
@@ -192,6 +194,7 @@ export class PrismaPricingRepository implements PricingRepository {
       name: row.name,
       durationMinutes: row.durationMinutes,
       priceCents: row.priceCents,
+      processingAllowanceCents: row.processingAllowanceCents,
       currency: row.currency as CurrencyCode,
       platformFeeBps: row.platformFeeBps,
     }));
@@ -205,6 +208,7 @@ export class PrismaPricingRepository implements PricingRepository {
       name: row.name,
       durationMinutes: row.durationMinutes,
       priceCents: row.priceCents,
+      processingAllowanceCents: row.processingAllowanceCents,
       currency: row.currency as CurrencyCode,
       platformFeeBps: row.platformFeeBps,
     };
@@ -454,5 +458,22 @@ export class PrismaAttachmentRepository implements AttachmentRepository {
 
   async delete(id: string): Promise<void> {
     await this.db.attachment.delete({ where: { id } });
+  }
+}
+
+/** Long-term-support enquiries. See `SupportLeadService` for why it does so little. */
+export class PrismaSupportLeadRepository implements SupportLeadRepository {
+  constructor(private readonly db: Db) {}
+
+  async create(input: { customerId: string; summary: string }): Promise<SupportLeadRecord> {
+    const row = await this.db.supportLead.create({
+      data: { customerId: input.customerId, summary: input.summary },
+    });
+    return {
+      id: row.id,
+      customerId: row.customerId,
+      summary: row.summary,
+      createdAt: row.createdAt,
+    };
   }
 }

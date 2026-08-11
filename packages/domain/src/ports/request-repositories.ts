@@ -39,7 +39,10 @@ export interface PricingTierRecord {
   readonly id: string;
   readonly name: string;
   readonly durationMinutes: number;
+  /** What the customer is charged, inclusive of the processing allowance. */
   readonly priceCents: number;
+  /** The slice of `priceCents` covering card processing; platform keeps it all. */
+  readonly processingAllowanceCents: number;
   readonly currency: CurrencyCode;
   readonly platformFeeBps: number;
 }
@@ -229,4 +232,24 @@ export interface JobScheduler {
     /** Collapses duplicate enqueues of the same logical job. */
     readonly singletonKey?: string;
   }): Promise<void>;
+}
+
+/**
+ * Long-term-support enquiries.
+ *
+ * A separate port from `SupportRequestRepository` on purpose: a lead is not a
+ * request in an early state, it is a different thing entirely — no price, no
+ * matching, no lifecycle. Folding it into the request repository would invite
+ * exactly the drift where someone later "just adds a state" and a lead starts
+ * flowing through dispatch.
+ */
+export interface SupportLeadRecord {
+  readonly id: string;
+  readonly customerId: string;
+  readonly summary: string;
+  readonly createdAt: Date;
+}
+
+export interface SupportLeadRepository {
+  create(input: { customerId: string; summary: string }): Promise<SupportLeadRecord>;
 }

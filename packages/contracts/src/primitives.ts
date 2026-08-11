@@ -5,6 +5,20 @@ export const currencyCodeSchema = z.enum(["INR", "USD", "GBP", "EUR", "AUD", "CA
 export type CurrencyCode = z.infer<typeof currencyCodeSchema>;
 
 /**
+ * The price list a customer is shown when we do not yet know better.
+ *
+ * A placeholder for a per-customer choice, not a permanent answer: currency is
+ * meant to live on CustomerProfile, set from an explicit country at
+ * registration and fixed thereafter. Until that column exists this is the single
+ * place the answer comes from, rather than the literal being repeated at every
+ * call site — which is how three routes came to hardcode "INR" independently.
+ *
+ * Whatever replaces it, it must never be derived from an exchange rate. Each
+ * currency is its own independently-priced list.
+ */
+export const DEFAULT_CURRENCY: CurrencyCode = "USD";
+
+/**
  * Money on the wire, mirroring the database: integer minor units plus currency.
  * There is no decimal representation anywhere in the system by design.
  */
@@ -25,6 +39,10 @@ export const requestStateSchema = z.enum([
   "CLASSIFYING",
   "SEARCHING",
   "OFFERED",
+  // Shortlist flow: three candidates shown, then the one the customer picked
+  // has two minutes to confirm. Both precede any payment.
+  "SHORTLISTED",
+  "AWAITING_EXPERT_CONFIRMATION",
   "ACCEPTED",
   "PAYMENT_PENDING",
   "READY",
@@ -98,6 +116,14 @@ export const attemptStatusSchema = z.enum([
   "EXCLUDED",
   "RANKED",
   "OFFERED",
+  // Interest pool. INTERESTED is a raised hand, not a commitment — the expert
+  // only becomes ACCEPTED once the customer picks them and they confirm.
+  // NOT_INTERESTED is separate from DECLINED because ignoring a broadcast must
+  // not cost reliability the way abandoning an exclusive offer does.
+  "INTERESTED",
+  "NOT_INTERESTED",
+  "SHORTLISTED",
+  "CONFIRMING",
   "ACCEPTED",
   "DECLINED",
   "TIMED_OUT",

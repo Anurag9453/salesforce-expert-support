@@ -81,6 +81,78 @@ export function splitFee(
   };
 }
 
+/**
+ * Split what the customer is charged into an expert payout and platform revenue,
+ * where part of the price exists purely to cover card processing.
+ *
+ * ## Why the fee base is not the charged amount
+ *
+ * The platform keeps 10% of a session. That means it also keeps only 10% of any
+ * price rise — so recovering an $0.88 processing charge by raising the price
+ * would need the price to go up by $12.39, because the other 90% flows to the
+ * expert. Price is a hopeless lever for a cost the platform alone bears.
+ *
+ * So the charged amount carries a **processing allowance** on top of the fee
+ * base. The percentage applies to the base; the allowance goes wholly to the
+ * platform. The customer covers processing, the expert's payout is completely
+ * unaffected by it, and the platform's 10% arrives intact rather than eroded to
+ * about 6%.
+ *
+ * It is deliberately part of the price and never a separate line at checkout.
+ * A visible card surcharge is a regulated act — prohibited for consumers in the
+ * UK, restricted on debit cards in India, and conditional in the US — whereas a
+ * price is just a price everywhere.
+ *
+ * ## The invariant
+ *
+ * `expertPayout + platformTotal === charged`, exactly, always. The payout is
+ * derived as a remainder rather than computed independently, so no minor unit
+ * can appear or vanish however the rounding falls.
+ */
+export function splitSessionPrice(params: {
+  readonly charged: Money;
+  /** The part of `charged` that exists to cover processing. Platform keeps all of it. */
+  readonly processingAllowanceMinor: number;
+  readonly platformFeeBps: number;
+}): {
+  charged: Money;
+  feeBase: Money;
+  processingAllowance: Money;
+  /** Percentage fee plus the whole allowance — what the platform actually keeps. */
+  platformTotal: Money;
+  expertPayout: Money;
+} {
+  const { charged, processingAllowanceMinor, platformFeeBps } = params;
+
+  if (!Number.isInteger(processingAllowanceMinor) || processingAllowanceMinor < 0) {
+    throw new RangeError(
+      `processingAllowanceMinor must be a non-negative integer; got ${String(processingAllowanceMinor)}`,
+    );
+  }
+  if (processingAllowanceMinor > charged.amountMinor) {
+    // Would imply a negative fee base, and then a negative payout. Better to
+    // fail loudly than to quietly pay an expert nothing.
+    throw new RangeError("The processing allowance cannot exceed the amount charged.");
+  }
+
+  const feeBaseMinor = charged.amountMinor - processingAllowanceMinor;
+  const { platformFee, expertPayout } = splitFee(
+    { amountMinor: feeBaseMinor, currency: charged.currency },
+    platformFeeBps,
+  );
+
+  return {
+    charged,
+    feeBase: { amountMinor: feeBaseMinor, currency: charged.currency },
+    processingAllowance: { amountMinor: processingAllowanceMinor, currency: charged.currency },
+    platformTotal: {
+      amountMinor: platformFee.amountMinor + processingAllowanceMinor,
+      currency: charged.currency,
+    },
+    expertPayout,
+  };
+}
+
 /** Display only. Never use the result for arithmetic or storage. */
 export function formatMoney(value: Money, locale = "en-IN"): string {
   return new Intl.NumberFormat(locale, {
