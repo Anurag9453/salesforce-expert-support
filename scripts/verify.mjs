@@ -156,7 +156,22 @@ if (!QUICK) {
    * The alternative was to let the suite skip itself when it cannot connect,
    * which is worse: a gate that silently omits its most important assertion
    * reads exactly like a gate that passed.
+   *
+   * For the same reason the migration step below it moved *above* it: a running
+   * server is not enough, the schema also has to be current. Phase 6's interest
+   * dispatch added an index and a suite that tests it, and with migration
+   * running afterwards that suite tested last week's schema — so the first
+   * verify after any new migration failed, and the second passed for no reason
+   * the developer changed.
    */
+  await step("dev database is migrated and seeded", async () => {
+    const deployed = await run("pnpm", ["--filter", "@sfx/db", "run", "migrate:deploy"]);
+    if (deployed.code !== 0) return false;
+    const asserted = await run("pnpm", ["--filter", "@sfx/db", "run", "assert-schema"]);
+    if (asserted.code !== 0) return false;
+    return (await run("pnpm", ["--filter", "@sfx/db", "run", "seed"])).code === 0;
+  });
+
   await step("test", async () => (await run("pnpm", ["turbo", "run", "test"])).code === 0);
 
   /**
@@ -216,14 +231,6 @@ if (!QUICK) {
       }
       await client.end().catch(() => {});
     }
-  });
-
-  await step("dev database is migrated and seeded", async () => {
-    const deployed = await run("pnpm", ["--filter", "@sfx/db", "run", "migrate:deploy"]);
-    if (deployed.code !== 0) return false;
-    const asserted = await run("pnpm", ["--filter", "@sfx/db", "run", "assert-schema"]);
-    if (asserted.code !== 0) return false;
-    return (await run("pnpm", ["--filter", "@sfx/db", "run", "seed"])).code === 0;
   });
 
   await step(

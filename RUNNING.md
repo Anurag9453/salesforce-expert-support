@@ -163,6 +163,62 @@ Two things worth knowing:
 - **Realtime needs a process that stays alive.** `LISTEN` cannot be held by a serverless function, so
   a Vercel-style deployment needs a hosted provider instead.
 
+### 7. Interest-pool dispatch (Phase 7) — off by default
+
+The alternative to the exclusive offer loop. Instead of asking one expert at a time, the request is
+broadcast to the top N, whoever is interested raises a hand, and the customer picks from three
+cards. **It is opt-in and `exclusive` remains the default** — nothing below changes unless you set
+`DISPATCH_MODE`.
+
+```bash
+DISPATCH_MODE=interest_pool INTEREST_WINDOW_SECONDS=20 INTEREST_BROADCAST_SIZE=8 pnpm dev
+```
+
+`INTEREST_WINDOW_SECONDS` defaults to 90; 20 makes the shortlist appear while you are still looking
+at the screen. The **two-minute confirmation window is not configurable** — it is a domain constant,
+so the countdown you see is the real one.
+
+You need one customer and **at least three** approved experts sharing a skill, in three browser
+profiles. Then:
+
+1. **Experts** — each on `/expert`, available. The interest panel is on this page and appears only
+   when something is waiting.
+2. **Customer** — submit a request. Within a few seconds every expert sees a card with
+   **Interested** / **Not interested**. There is deliberately **no countdown** on it: raising a hand
+   is not a commitment and does not lock your availability, so several can be open at once.
+3. Have two or three say **Interested** and one say **Not interested**.
+4. **After `INTEREST_WINDOW_SECONDS`**, the customer's page turns into up to three candidate cards.
+   No rank, no score and no "best match" label — the platform already decided who is good enough to
+   appear, and showing the order would turn a choice into a recommendation.
+5. **Customer picks one.** Their screen becomes a countdown; that expert's `/expert` page shows the
+   request as **"A customer chose you"** with **Confirm**, not as a new offer.
+6. **Either**: confirm, and the request goes to ACCEPTED. **Or**: decline, or say nothing for two
+   minutes — the customer drops back to the remaining cards and picks again, without losing
+   their place. When the last candidate lapses the request returns to SEARCHING.
+
+Only one expert is ever asked to confirm at a time; a second selection while one is pending is
+refused. That is enforced by a partial unique index (`one_confirming_per_request`), not by the UI.
+
+If nobody sees a card, check `/admin/requests/<id>` — it lists every candidate and every exclusion
+reason. The candidate pool is bounded, but it now **rotates** (`lastConsideredAt`), so a brand-new
+expert on a large bench is considered within a round or two rather than never.
+
+**Scripted end to end.** [scripts/e2e-interest-pool.mjs](scripts/e2e-interest-pool.mjs) drives the
+whole flow over HTTP — sign-up, approval, broadcast, interest, shortlist, selection, confirmation,
+decline-fallback, and a real two-minute lapse. It takes about three minutes, most of it spent
+waiting out that window rather than faking a clock.
+
+```bash
+DISPATCH_MODE=interest_pool INTEREST_WINDOW_SECONDS=20 REALTIME_PROVIDER=postgres pnpm dev
+node scripts/e2e-interest-pool.mjs
+```
+
+`REALTIME_PROVIDER` matters for what that run actually proves. Every step except one works over
+polling, because that is the designed fallback — so with the provider on `mock` the script passes
+while the push channel is entirely dead. The one step that fails is §3b, which holds an SSE stream
+open and asserts a real `event: signal` arrives; under `mock` it reports a skip instead. Run it with
+`REALTIME_PROVIDER=postgres` if you want realtime covered rather than assumed.
+
 ### Fastest full loop
 
 Two browser profiles (or one normal window + one incognito) side by side: applicant in one, admin in

@@ -20,13 +20,23 @@ type Db = PrismaClient | PrismaTransactionClient;
 
 /** Same structural detection as the Phase 2 adapters — `instanceof` is unreliable
  * across the Next.js/worker boundary because the client class identity differs. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
+function isUniqueViolation(error: unknown, ...constraints: readonly string[]): boolean {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    (error as { code?: unknown }).code !== "P2002"
+  ) {
+    return false;
+  }
+  if (constraints.length === 0) return true;
+  // Narrowing to a named index matters when a table has more than one unique
+  // constraint: swallowing the wrong violation would turn a real bug into a
+  // silent null. Prisma reports `target` as the index name for raw partial
+  // indexes and as a column list otherwise, so both shapes are checked.
+  const target = (error as { meta?: { target?: unknown } }).meta?.target;
+  const reported = Array.isArray(target) ? target.map(String) : [String(target ?? "")];
+  return reported.some((entry) => constraints.some((name) => entry.includes(name)));
 }
 
 // ── Candidate query ──────────────────────────────────────────────────────────
@@ -76,7 +86,31 @@ export class PrismaCandidateRepository implements CandidateRepository {
       take: params.limit,
       // Deterministic order so a re-run sees the same rows; the domain's seeded
       // tie-break then makes the *ranking* deterministic too.
-      orderBy: [{ lastAssignedAt: "asc" }, { id: "asc" }],
+      //
+      // `nulls: "first"` is load-bearing, not a tidy-up. `lastAssignedAt` is null
+      // for an expert who has never been assigned anything, and Postgres sorts
+      // nulls LAST in an ASC order — so newly approved experts sorted to the
+      // bottom of the bench and, on any roster larger than `limit`, were cut off
+      // before the domain ever saw them. A new expert could sit AVAILABLE
+      // indefinitely and never appear in a single run, with an audit trail that
+      // did not even list them as excluded.
+      //
+      // It also put this query at odds with the scorer, which reads a null as
+      // *maximally* idle (see `idleMinutes` below). Least-recently-assigned-first
+      // is a fairness rule; never-assigned belongs at the front of it.
+      //
+      // `lastConsideredAt` then breaks the tie *inside* that group, and it is the
+      // reason the tail of the bench cannot starve. Ordering by `lastAssignedAt`
+      // alone leaves every never-assigned expert tied on null; any stable
+      // tiebreak — `id` was the previous one — then admits the same prefix on
+      // every run, forever. Rotating on "when did we last look at you" advances
+      // the cut instead, and `id` remains underneath it so the order is still
+      // fully determined rather than arbitrary.
+      orderBy: [
+        { lastAssignedAt: { sort: "asc", nulls: "first" } },
+        { lastConsideredAt: { sort: "asc", nulls: "first" } },
+        { id: "asc" },
+      ],
       select: {
         id: true,
         userId: true,
@@ -107,6 +141,40 @@ export class PrismaCandidateRepository implements CandidateRepository {
         },
       },
     });
+
+    // Stamp everyone we just looked at, so the next run's cut starts after them.
+    //
+    // A write inside a query method, which is worth justifying: this is the
+    // ledger the ordering above reads, and the two have to agree. Doing it here
+    // means "was considered" is recorded by the same operation that considered
+    // them, rather than by a caller who might forget — and every caller
+    // forgetting once is all it takes for the rotation to stall.
+    //
+    // Not part of the run's transaction on purpose. If ranking fails afterwards,
+    // these experts having been *looked at* is still true, and the correct
+    // consequence is that the next run looks at somebody else. Rolling it back
+    // would restore the starvation this column exists to prevent.
+    // Each row gets a *distinct* stamp, one millisecond apart, in the order it
+    // was admitted — not one shared timestamp for the whole pool.
+    //
+    // A shared timestamp leaves the pool tied on the next run, and the `id`
+    // tiebreak underneath then resolves that tie the same way every time: the
+    // lowest ids resurface in every round while the rest cycle. That is much
+    // milder than the starvation this column fixes — nobody is excluded — but it
+    // still hands a permanent advantage to whoever registered first. Distinct
+    // stamps make the ledger a queue instead of a set, so the pool cycles.
+    //
+    // One statement, parameterised through `unnest`, so this stays a single
+    // round trip on the dispatch hot path.
+    if (rows.length > 0) {
+      const seenAt = rows.map((_, index) => new Date(params.now.getTime() + index));
+      await this.db.$executeRaw`
+        UPDATE "expert_profiles" AS e
+           SET "lastConsideredAt" = t.seen
+          FROM unnest(${rows.map((row) => row.id)}::text[], ${seenAt}::timestamp[])
+            AS t(id, seen)
+         WHERE e.id = t.id`;
+    }
 
     return rows.map((row) => ({
       candidate: {
@@ -327,6 +395,16 @@ export class PrismaMatchingRepository implements MatchingRepository {
   async findOpenOfferForExpert(expertProfileId: string): Promise<MatchingAttemptRecord | null> {
     const row = await this.db.matchingAttempt.findFirst({
       where: { expertProfileId, status: "OFFERED" },
+      select: ATTEMPT_SELECT,
+    });
+    return row ? toAttempt(row as AttemptRow) : null;
+  }
+
+  async findPendingConfirmationForExpert(
+    expertProfileId: string,
+  ): Promise<MatchingAttemptRecord | null> {
+    const row = await this.db.matchingAttempt.findFirst({
+      where: { expertProfileId, status: "CONFIRMING" },
       select: ATTEMPT_SELECT,
     });
     return row ? toAttempt(row as AttemptRow) : null;
@@ -656,6 +734,181 @@ export class PrismaMatchingRepository implements MatchingRepository {
       select: { id: true },
     });
     return rows.map((row) => row.id);
+  }
+
+  // ── Interest pool ─────────────────────────────────────────────────────────
+
+  async listInterestOpportunities(params: {
+    expertProfileId: string;
+    maxRank: number;
+    now: Date;
+  }): Promise<readonly MatchingAttemptRecord[]> {
+    const rows = await this.db.matchingAttempt.findMany({
+      where: {
+        expertProfileId: params.expertProfileId,
+        status: "RANKED",
+        rank: { lte: params.maxRank },
+        // Only while the request is still looking. A round that has moved on is
+        // not an opportunity, however recently it was ranked.
+        request: { state: "SEARCHING" },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return rows.map(toAttempt);
+  }
+
+  async recordInterest(params: {
+    attemptId: string;
+    expertProfileId: string;
+    interested: boolean;
+    now: Date;
+  }): Promise<{ changed: boolean }> {
+    // Guarded on RANKED and on ownership in the same statement, so a replayed
+    // click or someone else's attempt id changes zero rows rather than racing.
+    const result = await this.db.matchingAttempt.updateMany({
+      where: {
+        id: params.attemptId,
+        expertProfileId: params.expertProfileId,
+        status: "RANKED",
+      },
+      data: {
+        status: params.interested ? "INTERESTED" : "NOT_INTERESTED",
+        respondedAt: params.now,
+      },
+    });
+    return { changed: result.count > 0 };
+  }
+
+  async listInterested(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]> {
+    const rows = await this.db.matchingAttempt.findMany({
+      where: { supportRequestId, status: "INTERESTED" },
+      orderBy: { rank: "asc" },
+    });
+    return rows.map(toAttempt);
+  }
+
+  async markShortlisted(params: {
+    supportRequestId: string;
+    attemptIds: readonly string[];
+    now: Date;
+  }): Promise<number> {
+    // Sequential rather than $transaction, because `Db` may already be a
+    // transaction client and Prisma forbids nesting. Both statements are
+    // guarded on status, so a partial application is re-runnable rather than
+    // corrupting: the second pass simply finds nothing left to supersede.
+    const chosen = await this.db.matchingAttempt.updateMany({
+      where: {
+        supportRequestId: params.supportRequestId,
+        id: { in: [...params.attemptIds] },
+        status: "INTERESTED",
+      },
+      data: { status: "SHORTLISTED" },
+    });
+
+    // Everyone else in the round is out. Recorded rather than deleted, so
+    // "who was considered" stays answerable from the audit trail.
+    await this.db.matchingAttempt.updateMany({
+      where: {
+        supportRequestId: params.supportRequestId,
+        id: { notIn: [...params.attemptIds] },
+        status: { in: ["INTERESTED", "RANKED"] },
+      },
+      data: { status: "SUPERSEDED" },
+    });
+
+    return chosen.count;
+  }
+
+  async listShortlisted(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]> {
+    const rows = await this.db.matchingAttempt.findMany({
+      where: { supportRequestId, status: { in: ["SHORTLISTED", "CONFIRMING"] } },
+      orderBy: { rank: "asc" },
+    });
+    return rows.map(toAttempt);
+  }
+
+  async startConfirmation(params: {
+    attemptId: string;
+    expertProfileId: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<MatchingAttemptRecord | null> {
+    // Two guards, because they catch different things.
+    //
+    // SHORTLISTED stops this same attempt being selected twice. It does NOT stop
+    // two *different* attempts on one request being selected concurrently — each
+    // row's own precondition holds — so `one_confirming_per_request` is the one
+    // that actually enforces "one expert at a time". A unique violation here is
+    // the loser of that race and means exactly what a zero-row update means:
+    // somebody else got there first.
+    const result = await this.db.matchingAttempt
+      .updateMany({
+        where: { id: params.attemptId, status: "SHORTLISTED" },
+        data: {
+          status: "CONFIRMING",
+          offeredAt: params.now,
+          // Stored, not held by the job — a restart must not grant a fresh window.
+          offerExpiresAt: params.expiresAt,
+        },
+      })
+      .catch((error: unknown) => {
+        if (isUniqueViolation(error, "one_confirming_per_request", "supportRequestId")) {
+          return { count: 0 };
+        }
+        throw error;
+      });
+    if (result.count === 0) return null;
+
+    const row = await this.db.matchingAttempt.findUnique({ where: { id: params.attemptId } });
+    return row ? toAttempt(row) : null;
+  }
+
+  async settleConfirmation(params: {
+    attemptId: string;
+    expertProfileId: string;
+    toStatus: "ACCEPTED" | "TIMED_OUT" | "DECLINED";
+    now: Date;
+    releaseTo: AvailabilityStatus | null;
+    declineReason?: DeclineReasonCode | null;
+  }): Promise<MatchingAttemptRecord | null> {
+    // CONFIRMING is the guard, so a confirmation racing its own timeout — or a
+    // double-click — changes zero rows and returns null.
+    const result = await this.db.matchingAttempt.updateMany({
+      where: { id: params.attemptId, status: "CONFIRMING" },
+      data: {
+        status: params.toStatus,
+        respondedAt: params.now,
+        declineReason: params.declineReason ?? null,
+      },
+    });
+    if (result.count === 0) return null;
+
+    if (params.releaseTo) {
+      // Set directly rather than through `releaseAvailability`, which is guarded
+      // on ON_OFFER. Interest deliberately does not lock availability — an
+      // expert raising a hand is not committed — so someone confirming is
+      // usually still AVAILABLE rather than ON_OFFER.
+      await this.db.expertProfile.update({
+        where: { id: params.expertProfileId },
+        data: { availabilityStatus: params.releaseTo },
+      });
+    }
+
+    const row = await this.db.matchingAttempt.findUnique({ where: { id: params.attemptId } });
+    return row ? toAttempt(row) : null;
+  }
+
+  async listLapsedConfirmations(params: {
+    now: Date;
+    limit: number;
+  }): Promise<readonly MatchingAttemptRecord[]> {
+    const rows = await this.db.matchingAttempt.findMany({
+      where: { status: "CONFIRMING", offerExpiresAt: { lte: params.now } },
+      orderBy: { offerExpiresAt: "asc" },
+      take: params.limit,
+    });
+    return rows.map(toAttempt);
   }
 
   async completeRun(params: { matchingRunId: string; now: Date }): Promise<void> {

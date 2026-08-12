@@ -20,6 +20,10 @@ export const QUEUES = {
   OFFER_TIMEOUT: "offer-timeout",
   /** §15 — 15-minute give-up, voids the authorization. Phase 5. */
   MATCHING_DEADLINE: "matching-deadline",
+  /** Close the interest window and assemble the shortlist. Interest-pool mode. */
+  INTEREST_WINDOW_CLOSE: "interest-window-close",
+  /** The chosen expert's 2-minute confirmation window. Interest-pool mode. */
+  CONFIRMATION_TIMEOUT: "confirmation-timeout",
   /** §C4 — sweep stale-available experts offline. Phase 4. */
   HEARTBEAT_SWEEP: "heartbeat-sweep",
   /** §18 — deliver queued notifications. Phase 6. */
@@ -33,6 +37,8 @@ export interface JobPayloads {
   [QUEUES.DISPATCH_NEXT_OFFER]: { supportRequestId: string; matchingRunId: string };
   [QUEUES.OFFER_TIMEOUT]: { supportRequestId: string; matchingAttemptId: string };
   [QUEUES.MATCHING_DEADLINE]: { supportRequestId: string };
+  [QUEUES.INTEREST_WINDOW_CLOSE]: { supportRequestId: string };
+  [QUEUES.CONFIRMATION_TIMEOUT]: { supportRequestId: string; attemptId: string };
   [QUEUES.HEARTBEAT_SWEEP]: Record<string, never>;
   [QUEUES.NOTIFICATION_DISPATCH]: { notificationId: string };
 }
@@ -50,6 +56,10 @@ export const RETRY_POLICY: Record<QueueName, { retryLimit: number; retryDelaySec
   [QUEUES.DISPATCH_NEXT_OFFER]: { retryLimit: 2, retryDelaySeconds: 3 },
   [QUEUES.OFFER_TIMEOUT]: { retryLimit: 3, retryDelaySeconds: 5 },
   [QUEUES.MATCHING_DEADLINE]: { retryLimit: 3, retryDelaySeconds: 5 },
+  // Both are safe to retry: each reads a stored deadline and every write is
+  // guarded on the current status, so a second run finds nothing left to do.
+  [QUEUES.INTEREST_WINDOW_CLOSE]: { retryLimit: 3, retryDelaySeconds: 5 },
+  [QUEUES.CONFIRMATION_TIMEOUT]: { retryLimit: 3, retryDelaySeconds: 5 },
   [QUEUES.HEARTBEAT_SWEEP]: { retryLimit: 0, retryDelaySeconds: 0 },
   [QUEUES.NOTIFICATION_DISPATCH]: { retryLimit: 3, retryDelaySeconds: 30 },
 };

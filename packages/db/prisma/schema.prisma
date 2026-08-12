@@ -406,6 +406,20 @@ model ExpertProfile {
   lastAvailableAt        DateTime?
   lastAssignedAt         DateTime?
   lastSessionCompletedAt DateTime?
+  /// When this expert was last *pulled into a candidate pool* — not offered
+  /// anything, just looked at.
+  ///
+  /// The candidate query is bounded, so on a bench larger than the pool some
+  /// experts are cut before the domain ever scores them. Ordering that cut by
+  /// `lastAssignedAt` alone is not enough: every expert who has never been
+  /// assigned ties on `null`, and a stable tiebreak then admits the same
+  /// prefix forever while the tail is never considered once.
+  ///
+  /// This is the tiebreak within that tie — least-recently-considered first, so
+  /// the cut rotates. It affects **only** who enters the pool. Scores, ranks and
+  /// the audited `createRun` ordering are computed afterwards and are untouched
+  /// by it.
+  lastConsideredAt       DateTime?
 
   /// Photos live in `ExpertPhoto` rather than as a column here, because a photo
   /// has a moderation lifecycle and a history — which a nullable string cannot
@@ -447,6 +461,8 @@ model ExpertProfile {
 
   @@index([status, availabilityStatus])
   @@index([availabilityStatus, lastHeartbeatAt])
+  /// Covers the candidate query's ordering, which is also its fairness rule.
+  @@index([lastAssignedAt, lastConsideredAt])
   @@map("expert_profiles")
 }
 

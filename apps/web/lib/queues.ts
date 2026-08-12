@@ -11,6 +11,8 @@ export const QUEUES = {
   DISPATCH_NEXT_OFFER: "dispatch-next-offer",
   OFFER_TIMEOUT: "offer-timeout",
   MATCHING_DEADLINE: "matching-deadline",
+  INTEREST_WINDOW_CLOSE: "interest-window-close",
+  CONFIRMATION_TIMEOUT: "confirmation-timeout",
   HEARTBEAT_SWEEP: "heartbeat-sweep",
   NOTIFICATION_DISPATCH: "notification-dispatch",
 } as const;

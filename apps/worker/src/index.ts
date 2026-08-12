@@ -10,12 +10,17 @@ import {
 } from "./jobs/classify-request.js";
 import { runHeartbeatSweep, SWEEP_INTERVAL_MS } from "./jobs/heartbeat-sweep.js";
 import {
+  handleConfirmationTimeout,
   handleDispatchNextOffer,
+  handleInterestWindowClose,
   handleMatchingDeadline,
   handleOfferTimeout,
+  reconcileConfirmations,
   reconcileOffers,
   recoverStalledSearches,
+  type ConfirmationTimeoutPayload,
   type DispatchNextOfferPayload,
+  type InterestWindowClosePayload,
   type MatchingDeadlinePayload,
   type OfferTimeoutPayload,
 } from "./jobs/dispatch.js";
@@ -122,8 +127,34 @@ async function main(): Promise<void> {
       for (const job of jobs) await handleMatchingDeadline(container, job.data);
     },
   );
+  // Interest-pool timers. Registered unconditionally: the queues are only ever
+  // enqueued into when DISPATCH_MODE=interest_pool, and a handler with nothing
+  // to consume costs nothing — whereas a mode flip with no consumer would strand
+  // every request at its interest window.
+  await boss.work<InterestWindowClosePayload>(
+    QUEUES.INTEREST_WINDOW_CLOSE,
+    { batchSize: 1 },
+    async (jobs) => {
+      for (const job of jobs) await handleInterestWindowClose(container, job.data);
+    },
+  );
+
+  await boss.work<ConfirmationTimeoutPayload>(
+    QUEUES.CONFIRMATION_TIMEOUT,
+    { batchSize: 1 },
+    async (jobs) => {
+      for (const job of jobs) await handleConfirmationTimeout(container, job.data);
+    },
+  );
+
   logger.info("dispatch handlers registered", {
-    queues: [QUEUES.DISPATCH_NEXT_OFFER, QUEUES.OFFER_TIMEOUT, QUEUES.MATCHING_DEADLINE],
+    queues: [
+      QUEUES.DISPATCH_NEXT_OFFER,
+      QUEUES.OFFER_TIMEOUT,
+      QUEUES.MATCHING_DEADLINE,
+      QUEUES.INTEREST_WINDOW_CLOSE,
+      QUEUES.CONFIRMATION_TIMEOUT,
+    ],
   });
 
   // Recovery janitor, not a dispatch mechanism. Catches requests stranded in
@@ -155,6 +186,14 @@ async function main(): Promise<void> {
   // dispatcher. Phase 4 deliberately left ON_OFFER alone because it had nothing
   // to re-dispatch with.
   const reconcileTimer = setInterval(() => {
+    // Backstop for a lost confirmation-timeout job. A customer watching a
+    // countdown that already finished is not a good thing to leave depending on
+    // "an enqueue should never be lost".
+    void reconcileConfirmations(container).catch((error: unknown) => {
+      logger.error("confirmation reconciliation failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     void reconcileOffers(container).catch((error: unknown) => {
       logger.error("offer reconciliation failed", {
         error: error instanceof Error ? error.message : String(error),

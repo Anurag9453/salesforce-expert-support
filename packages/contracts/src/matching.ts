@@ -45,6 +45,16 @@ export const offerViewSchema = z.object({
    */
   origin: attemptOriginSchema,
   adminNote: z.string().nullable(),
+  /**
+   * True when this is an interest-pool confirmation rather than an exclusive
+   * offer — a customer has already picked this expert off a shortlist.
+   *
+   * The mechanics are identical (a countdown, yes or no), which is why one view
+   * carries both. What differs is what the expert is being told: an offer is
+   * "you are first in line", a confirmation is "someone chose you". Collapsing
+   * that distinction would make the interest pool feel like a slower offer.
+   */
+  isConfirmation: z.boolean().default(false),
 });
 export type OfferView = z.infer<typeof offerViewSchema>;
 

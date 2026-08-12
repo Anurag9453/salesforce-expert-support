@@ -109,3 +109,67 @@ export async function recoverStalledSearches(container: WorkerContainer): Promis
     container.logger.warn("recovered stalled searches", { recovered });
   }
 }
+
+// ── Interest-pool dispatch ───────────────────────────────────────────────────
+
+export interface InterestWindowClosePayload {
+  supportRequestId: string;
+}
+
+/**
+ * Close the interest window and put the shortlist in front of the customer.
+ *
+ * Idempotent: the service refuses anything that is no longer SEARCHING, so a
+ * duplicate delivery finds the round already settled and does nothing. A
+ * request with nobody interested falls through to the relaxation ladder — the
+ * same route the exclusive loop takes when everybody declines.
+ */
+export async function handleInterestWindowClose(
+  container: WorkerContainer,
+  payload: InterestWindowClosePayload,
+): Promise<void> {
+  const outcome = await container.matching.closeInterestWindow(payload.supportRequestId);
+  container.logger.info("interest window closed", {
+    supportRequestId: payload.supportRequestId,
+    action: outcome.action,
+    reason: outcome.reason,
+  });
+}
+
+export interface ConfirmationTimeoutPayload {
+  supportRequestId: string;
+  attemptId: string;
+}
+
+/**
+ * The chosen expert's two minutes are up.
+ *
+ * Reads the stored deadline rather than trusting the job's timing — a duplicate
+ * delivery, or one that fires early after a restart, returns NOT_YET_DUE instead
+ * of cutting someone's window short.
+ */
+export async function handleConfirmationTimeout(
+  container: WorkerContainer,
+  payload: ConfirmationTimeoutPayload,
+): Promise<void> {
+  const result = await container.matching.lapseConfirmation(payload.attemptId);
+  container.logger.info("confirmation window settled", {
+    supportRequestId: payload.supportRequestId,
+    attemptId: payload.attemptId,
+    action: result.action,
+  });
+}
+
+/**
+ * Backstop for lost confirmation-timeout jobs.
+ *
+ * Same reasoning as `reconcileOffers`: a transactional enqueue should never go
+ * missing, but a customer stuck watching a countdown that already finished is
+ * not a good thing to leave depending on "should never".
+ */
+export async function reconcileConfirmations(container: WorkerContainer): Promise<void> {
+  const { lapsed } = await container.matching.reconcileLapsedConfirmations();
+  if (lapsed > 0) {
+    container.logger.warn("swept lapsed confirmations", { lapsed });
+  }
+}

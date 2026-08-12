@@ -20,6 +20,7 @@ import {
   DEFAULT_MATCHING_THRESHOLDS,
   DispatchNotifier,
   ExpertAvailabilityService,
+  InterestDispatch,
   MatchingService,
   NotificationService,
   systemClock,
@@ -164,6 +165,21 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
       scheduler,
       clock: systemClock,
       logger,
+      // Off unless DISPATCH_MODE says otherwise; `exclusive` is the default, so
+      // constructing this changes nothing until the switch is flipped.
+      interest: new InterestDispatch({
+        matching: matchingRepo,
+        scheduler,
+        clock: systemClock,
+        logger,
+        queues: {
+          interestWindowClose: QUEUES.INTEREST_WINDOW_CLOSE,
+          confirmationTimeout: QUEUES.CONFIRMATION_TIMEOUT,
+        },
+        broadcastSize: env.INTEREST_BROADCAST_SIZE,
+        interestWindowSeconds: env.INTEREST_WINDOW_SECONDS,
+      }),
+      dispatchMode: env.DISPATCH_MODE,
       notifier: new DispatchNotifier({
         realtime,
         clock: systemClock,

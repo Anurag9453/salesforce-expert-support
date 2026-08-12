@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isDomainError } from "@sfx/domain";
 import { Badge, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
+import { toShortlistView } from "@/lib/matching-view";
+import { CandidateCards } from "@/components/request/candidate-cards";
 import { RequestStatus } from "@/components/request/request-status";
 import { getContainer } from "@/lib/container";
 import { loadMatchedExpert, toRequestView } from "@/lib/request-view";
@@ -17,9 +19,11 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
   const { supportRequests, attachments, pricing } = getContainer();
 
   let view;
+  let record;
+  let shortlist = null;
   try {
     // Throws FORBIDDEN for anyone but the owner. A guessed id renders nothing.
-    const record = await supportRequests.getForCustomer(actor, id);
+    record = await supportRequests.getForCustomer(actor, id);
     const tier = await pricing.findTierById(record.pricingTierId);
     view = toRequestView(
       record,
@@ -28,6 +32,12 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
       new Date(),
       await loadMatchedExpert(getContainer().prisma, record),
     );
+
+    // Only while the customer actually has a decision to make. Any other state
+    // renders the normal status panel.
+    if (record.state === "SHORTLISTED" || record.state === "AWAITING_EXPERT_CONFIRMATION") {
+      shortlist = await toShortlistView(record, getContainer());
+    }
   } catch (error) {
     if (isDomainError(error) && (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")) {
       notFound();
@@ -49,7 +59,16 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
         }
       />
 
-      <RequestStatus initial={view} />
+      {/*
+        The shortlist replaces the status panel while the customer is choosing —
+        at that moment the decision is theirs, and a status line saying "finding
+        an expert" alongside three cards would be contradictory.
+      */}
+      {shortlist ? (
+        <CandidateCards supportRequestId={record.id} initial={shortlist} />
+      ) : (
+        <RequestStatus initial={view} />
+      )}
 
       <Card>
         <CardHeader>

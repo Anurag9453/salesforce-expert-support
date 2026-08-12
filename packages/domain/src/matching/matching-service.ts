@@ -20,6 +20,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { assertTransition } from "../support-requests/state-machine.js";
 import { TIMING_POINTS, type DispatchNotifier } from "./dispatch-events.js";
 import type { ExclusionReason } from "./filters.js";
+import type { InterestDispatch } from "./interest-dispatch.js";
 import { rankCandidates, type RankingResult } from "./rank.js";
 import {
   DEFAULT_RELAXATION_SCHEDULE_SECONDS,
@@ -107,6 +108,13 @@ export interface MatchingServiceDeps {
    * only the immediacy is lost (requirement 10).
    */
   readonly notifier?: DispatchNotifier;
+  /**
+   * The interest-pool loop. Optional and off by default: with no `interest`
+   * dependency, or with mode `exclusive`, every path below behaves exactly as it
+   * did before, which is what keeps the existing suites meaningful.
+   */
+  readonly interest?: InterestDispatch;
+  readonly dispatchMode?: "exclusive" | "interest_pool";
 }
 
 export interface DispatchOutcome {
@@ -186,6 +194,11 @@ export class MatchingService {
    * deadline passed.
    */
   async dispatchNextOffer(supportRequestId: string): Promise<DispatchOutcome> {
+    // The single branch point between the two dispatch models. Every caller —
+    // beginSearch, the relaxation job, the stalled-search sweeper — arrives
+    // here, so routing once means none of them needs to know which mode is on.
+    if (this.interestEnabled) return this.broadcastInterest(supportRequestId);
+
     const now = this.deps.clock.now();
     const request = await this.requireRequest(supportRequestId);
 
@@ -507,6 +520,401 @@ export class MatchingService {
 
     const request = await this.requireRequest(supportRequestId);
     return { attempt, request };
+  }
+
+  /**
+   * Nobody to ask at this level: relax, wait, or give up.
+   *
+   * Shared by both dispatch modes on purpose — "the pool is dry" means the same
+   * thing whether everyone declined an exclusive offer or nobody raised a hand,
+   * and the relaxation ladder is the one place that decides what to do about it.
+   */
+  private async handleEmptyPool(
+    request: SupportRequestRecord,
+    level: number,
+    now: Date,
+  ): Promise<DispatchOutcome> {
+    const nextLevel = level + 1;
+    if (nextLevel > MAX_RELAXATION_LEVEL) {
+      await this.giveUp(
+        request,
+        "No expert met the minimum competence for this problem, even at maximum relaxation.",
+      );
+      return { action: "NO_EXPERT_FOUND", reason: "pool exhausted at maximum relaxation" };
+    }
+
+    const elapsedSeconds = (now.getTime() - request.createdAt.getTime()) / 1000;
+    if (nextLevel > scheduledLevel(elapsedSeconds, this.thresholds.relaxationScheduleSeconds)) {
+      // Not yet due. Experts also come online during this window, so the
+      // re-rank when it fires is not merely a repeat.
+      await this.deps.scheduler.enqueue({
+        queue: this.deps.queues.dispatchNextOffer,
+        payload: { supportRequestId: request.id },
+        runAfterSeconds: this.secondsUntilNextLevel(nextLevel, request.createdAt, now),
+        singletonKey: `dispatch:${request.id}:level:${String(nextLevel)}`,
+      });
+      return { action: "RELAXED", relaxationLevel: level };
+    }
+
+    await this.deps.scheduler.enqueue({
+      queue: this.deps.queues.dispatchNextOffer,
+      payload: { supportRequestId: request.id },
+      runAfterSeconds: 0,
+      singletonKey: `dispatch:${request.id}:level:${String(nextLevel)}`,
+    });
+    return { action: "RELAXED", relaxationLevel: nextLevel };
+  }
+
+  // ── Interest-pool dispatch (DISPATCH_MODE=interest_pool) ──────────────────
+  //
+  // These sit beside the exclusive loop rather than replacing it. `InterestDispatch`
+  // owns the attempt mechanics; the request's own state transitions stay here,
+  // because this is where `transition()` and the request repository already live
+  // and duplicating either would be how the two drift apart.
+
+  private get interestEnabled(): boolean {
+    return this.deps.dispatchMode === "interest_pool" && this.deps.interest !== undefined;
+  }
+
+  /**
+   * Broadcasts a ranked round to the top N instead of offering it to one expert.
+   *
+   * Reuses `createRun` wholesale — the ranking, the audit trail and the
+   * exclusion reasons are identical to the exclusive path. Only what happens
+   * *after* the round exists differs.
+   */
+  async broadcastInterest(supportRequestId: string): Promise<DispatchOutcome> {
+    const now = this.deps.clock.now();
+    const request = await this.requireRequest(supportRequestId);
+
+    if (request.state !== "SEARCHING") {
+      return { action: "NOT_SEARCHING", reason: `request is ${request.state}` };
+    }
+    if (now >= request.matchDeadlineAt) {
+      await this.giveUp(request, "The 15-minute matching window closed.");
+      return { action: "DEADLINE_PASSED", reason: "deadline passed" };
+    }
+
+    const elapsed = Math.floor((now.getTime() - request.createdAt.getTime()) / 1000);
+    const level = scheduledLevel(elapsed, this.thresholds.relaxationScheduleSeconds);
+    const run = await this.createRun(request, level, now);
+
+    const outcome = await this.deps.interest?.openWindow(request);
+    const reached = outcome?.action === "BROADCAST" ? outcome.reached : 0;
+
+    if (reached === 0) {
+      // Nobody to ask at this level. The relaxation ladder, not the interest
+      // window, decides whether to widen or give up — same as exclusive mode.
+      return this.handleEmptyPool(request, level, now);
+    }
+
+    // Every expert who was asked gets told, through the same doorbell the
+    // exclusive path uses. The payload carries nothing; they re-fetch.
+    const attempts = await this.deps.matching.listAttemptsForRequest(request.id);
+    for (const attempt of attempts) {
+      if (attempt.status !== "RANKED" || attempt.rank === null) continue;
+      await this.notify?.offerOpened({
+        expertProfileId: attempt.expertProfileId,
+        supportRequestId: request.id,
+        customerId: request.customerId,
+        offeredAt: now,
+      });
+    }
+
+    this.deps.logger.info("interest broadcast", {
+      supportRequestId: request.id,
+      runId: run.id,
+      relaxationLevel: level,
+      reached,
+    });
+    return { action: "OFFERED", reason: `broadcast to ${String(reached)}` };
+  }
+
+  /**
+   * Closes the interest window and puts the shortlist in front of the customer.
+   *
+   * Nobody interested is not a failure — it is the same "pool is dry" situation
+   * the exclusive loop meets when everyone declines, and it takes the same
+   * route through the relaxation ladder.
+   */
+  async closeInterestWindow(supportRequestId: string): Promise<DispatchOutcome> {
+    const now = this.deps.clock.now();
+    const request = await this.requireRequest(supportRequestId);
+    if (request.state !== "SEARCHING") {
+      return { action: "NOT_SEARCHING", reason: `request is ${request.state}` };
+    }
+    if (!this.deps.interest) return { action: "NOT_SEARCHING", reason: "interest mode off" };
+
+    const outcome = await this.deps.interest.closeWindow(request);
+    if (outcome.action === "NO_INTEREST") {
+      const elapsed = Math.floor((now.getTime() - request.createdAt.getTime()) / 1000);
+      const level = scheduledLevel(elapsed, this.thresholds.relaxationScheduleSeconds);
+      return this.handleEmptyPool(request, level, now);
+    }
+    if (outcome.action !== "SHORTLISTED") {
+      return { action: "NOT_SEARCHING", reason: outcome.action };
+    }
+
+    await this.transition(request, "SHORTLISTED", {
+      actorType: "SYSTEM",
+      reason: `Interest window closed with ${String(outcome.candidates)} candidate(s).`,
+      metadata: { candidates: outcome.candidates },
+    });
+    await this.notify?.requestStateChanged(request.id, request.customerId);
+
+    return { action: "OFFERED", reason: `shortlisted ${String(outcome.candidates)}` };
+  }
+
+  /**
+   * The customer picks one of the three.
+   *
+   * Authorization is ownership of the request, checked against the record rather
+   * than trusted from the body — the attempt id alone must not let one customer
+   * drive another's shortlist.
+   */
+  async selectCandidate(
+    actor: Actor,
+    supportRequestId: string,
+    attemptId: string,
+  ): Promise<MatchingAttemptRecord> {
+    authorize(actor, "support_request:read_own");
+    if (!this.deps.interest) {
+      throw new ConflictError("Candidate selection is not enabled.", { attemptId });
+    }
+
+    const request = await this.requireRequest(supportRequestId);
+    if (request.customerId !== actor.customerProfileId) {
+      throw new ForbiddenError("support_request:read_own", `request:${supportRequestId}`);
+    }
+    if (request.state !== "SHORTLISTED") {
+      throw new ConflictError("This request is no longer waiting for you to choose.", {
+        state: request.state,
+      });
+    }
+
+    const chosen = await this.deps.interest.select(supportRequestId, attemptId);
+
+    await this.transition(request, "AWAITING_EXPERT_CONFIRMATION", {
+      actorType: "CUSTOMER",
+      actorUserId: actor.userId,
+      reason: "Customer chose a candidate.",
+      metadata: { attemptId: chosen.id },
+    });
+
+    // The chosen expert needs to know now — they have two minutes.
+    await this.notify?.offerOpened({
+      expertProfileId: chosen.expertProfileId,
+      supportRequestId: request.id,
+      customerId: request.customerId,
+      offeredAt: this.deps.clock.now(),
+    });
+
+    return chosen;
+  }
+
+  /**
+   * The chosen expert confirms, and both sides have now agreed.
+   *
+   * Deliberately mirrors `acceptOffer`: same transition, same assignment, same
+   * supersede-and-complete. The difference is only which guard let it through.
+   */
+  async confirmSelection(actor: Actor, attemptId: string): Promise<MatchingAttemptRecord> {
+    authorize(actor, "offer:respond");
+    const now = this.deps.clock.now();
+    const attempt = await this.requireOwnAttempt(actor, attemptId);
+
+    if (attempt.status === "ACCEPTED") return attempt;
+    if (attempt.status !== "CONFIRMING") {
+      throw new ConflictError(this.closedOfferMessage(attempt), { status: attempt.status });
+    }
+    if (attempt.offerExpiresAt && now > attempt.offerExpiresAt) {
+      // Honour the stored deadline, not the job — the same rule the offer
+      // window follows.
+      throw new ConflictError("Your two minutes ran out before your answer reached us.", {
+        offerExpiresAt: attempt.offerExpiresAt.toISOString(),
+      });
+    }
+
+    const request = await this.requireRequest(attempt.supportRequestId);
+    const settled = await this.deps.matching.settleConfirmation({
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      toStatus: "ACCEPTED",
+      now,
+      releaseTo: "IN_SESSION",
+    });
+    if (!settled) {
+      const current = await this.deps.matching.findAttemptById(attempt.id);
+      throw new ConflictError(this.closedOfferMessage(current ?? attempt));
+    }
+
+    await this.transition(request, "ACCEPTED", {
+      actorType: "EXPERT",
+      actorUserId: actor.userId,
+      reason: "Expert confirmed the customer's choice.",
+      metadata: { attemptId: attempt.id },
+    });
+    await this.deps.requests.assignExpert({
+      requestId: request.id,
+      expertProfileId: attempt.expertProfileId,
+      now,
+    });
+
+    // The other shortlisted experts are out. Recorded, not deleted.
+    await this.deps.matching.supersedeRankedAttempts({
+      matchingRunId: attempt.matchingRunId,
+      now,
+    });
+    await this.deps.matching.completeRun({ matchingRunId: attempt.matchingRunId, now });
+    await this.notify?.requestStateChanged(request.id, request.customerId);
+
+    this.deps.logger.info("selection confirmed", {
+      supportRequestId: request.id,
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+    });
+    return settled;
+  }
+
+  /**
+   * The chosen expert let their two minutes lapse.
+   *
+   * Two outcomes, and they are different transitions: someone left means the
+   * customer chooses again; nobody left means we search again. Returning the
+   * customer to an empty shortlist would strand them.
+   */
+  async lapseConfirmation(attemptId: string): Promise<{ action: string }> {
+    const now = this.deps.clock.now();
+    if (!this.deps.interest) return { action: "NOT_ENABLED" };
+
+    const attempt = await this.deps.matching.findAttemptById(attemptId);
+    if (!attempt) return { action: "UNKNOWN_ATTEMPT" };
+    if (attempt.status !== "CONFIRMING") {
+      // Confirmed just before the timer, or already settled. Losing that race is
+      // the correct outcome.
+      return { action: "ALREADY_SETTLED" };
+    }
+    if (attempt.offerExpiresAt && now < attempt.offerExpiresAt) {
+      // Fired early — a duplicate delivery. The stored deadline is the truth.
+      return { action: "NOT_YET_DUE" };
+    }
+
+    return this.fallBackFromConfirmation({ attempt, now, decision: "TIMED_OUT" });
+  }
+
+  /**
+   * The chosen expert says no, before their two minutes are up.
+   *
+   * Recorded as DECLINED rather than TIMED_OUT. The customer sees the same
+   * thing either way — back to the shortlist — but the two are not the same
+   * event: one is an answer and the other is silence, and an expert who
+   * reliably answers "no" quickly should not accumulate the same history as one
+   * who goes dark. Everything after the settle is shared with the lapse path,
+   * because the *recovery* genuinely is identical.
+   */
+  async declineConfirmation(
+    actor: Actor,
+    attemptId: string,
+    reason: DeclineReasonCode | null,
+  ): Promise<MatchingAttemptRecord> {
+    authorize(actor, "offer:respond");
+    const now = this.deps.clock.now();
+    const attempt = await this.requireOwnAttempt(actor, attemptId);
+
+    if (attempt.status !== "CONFIRMING") {
+      throw new ConflictError(this.closedOfferMessage(attempt), { status: attempt.status });
+    }
+
+    const settled = await this.deps.matching.findAttemptById(attemptId);
+    await this.fallBackFromConfirmation({
+      attempt,
+      now,
+      decision: "DECLINED",
+      reason,
+      actorUserId: actor.userId,
+    });
+
+    const after = await this.deps.matching.findAttemptById(attemptId);
+    return after ?? settled ?? attempt;
+  }
+
+  /**
+   * Settle a confirmation that will not become a session, and give the customer
+   * back whatever is left.
+   *
+   * Shared by the timeout job and by an expert declining outright, so the two
+   * cannot drift — the bug that would cause is a customer stranded on a dead
+   * countdown because only one of the paths remembered to transition the
+   * request.
+   */
+  private async fallBackFromConfirmation(params: {
+    attempt: MatchingAttemptRecord;
+    now: Date;
+    decision: "TIMED_OUT" | "DECLINED";
+    reason?: DeclineReasonCode | null;
+    actorUserId?: string;
+  }): Promise<{ action: string }> {
+    const { attempt, now, decision } = params;
+    if (!this.deps.interest) return { action: "NOT_ENABLED" };
+
+    const settled = await this.deps.matching.settleConfirmation({
+      attemptId: attempt.id,
+      expertProfileId: attempt.expertProfileId,
+      toStatus: decision,
+      now,
+      releaseTo: null,
+      declineReason: params.reason ?? null,
+    });
+    if (!settled) return { action: "ALREADY_SETTLED" };
+
+    const request = await this.requireRequest(attempt.supportRequestId);
+    if (request.state !== "AWAITING_EXPERT_CONFIRMATION") {
+      return { action: "NOT_AWAITING" };
+    }
+
+    const { exhausted } = await this.deps.interest.lapse(request.id, attempt.id);
+    const said = decision === "DECLINED" ? "declined" : "did not confirm in time";
+    // SYSTEM even when an expert triggered it. Coming off a dead confirmation is
+    // a recovery the platform performs, and the state machine reserves the
+    // transition accordingly; the expert is still attributed through
+    // `actorUserId` and the reason, which is where an auditor looks anyway.
+    const actorType = "SYSTEM" as const;
+
+    if (exhausted) {
+      await this.transition(request, "SHORTLISTED", {
+        actorType,
+        actorUserId: params.actorUserId,
+        reason: `The chosen expert ${said} and nobody is left on the shortlist.`,
+      });
+      const back = await this.requireRequest(request.id);
+      await this.transition(back, "SEARCHING", {
+        actorType: "SYSTEM",
+        reason: "Shortlist exhausted; searching again.",
+      });
+      await this.notify?.requestStateChanged(request.id, request.customerId);
+      return { action: "RESEARCHING" };
+    }
+
+    await this.transition(request, "SHORTLISTED", {
+      actorType,
+      actorUserId: params.actorUserId,
+      reason: `The chosen expert ${said}.`,
+      metadata: { attemptId: attempt.id },
+    });
+    await this.notify?.requestStateChanged(request.id, request.customerId);
+    return { action: "BACK_TO_SHORTLIST" };
+  }
+
+  /** Sweeps confirmations whose stored deadline has passed. Backstop for lost jobs. */
+  async reconcileLapsedConfirmations(limit = 25): Promise<{ lapsed: number }> {
+    if (!this.deps.interest) return { lapsed: 0 };
+    const overdue = await this.deps.interest.lapsedConfirmations(limit);
+    let lapsed = 0;
+    for (const attempt of overdue) {
+      const result = await this.lapseConfirmation(attempt.id);
+      if (result.action === "BACK_TO_SHORTLIST" || result.action === "RESEARCHING") lapsed += 1;
+    }
+    return { lapsed };
   }
 
   async acceptOffer(actor: Actor, attemptId: string): Promise<MatchingAttemptRecord> {

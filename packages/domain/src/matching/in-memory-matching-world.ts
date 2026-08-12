@@ -135,11 +135,73 @@ export const FRESH = new Date(0);
 export class FakeCandidateRepository implements CandidateRepository {
   rows: CandidateRow[] = [];
 
-  async findCandidates(params: { now: Date }): Promise<readonly CandidateRow[]> {
-    return this.rows.map((row) =>
+  /**
+   * The consideration ledger, mirroring `ExpertProfile.lastConsideredAt`.
+   *
+   * Modelled here rather than left to the adapter because the property it
+   * protects — that a bounded pool eventually reaches everyone — is invisible
+   * unless the fake also enforces the bound. A fake that returns every row makes
+   * a starving tail impossible to reproduce, which is exactly how the real one
+   * went unnoticed.
+   */
+  private consideredAt = new Map<string, Date>();
+
+  /** Test seam: pretend these experts were last looked at at this time. */
+  seedConsidered(expertProfileId: string, at: Date | null): void {
+    if (at === null) this.consideredAt.delete(expertProfileId);
+    else this.consideredAt.set(expertProfileId, at);
+  }
+
+  lastConsidered(expertProfileId: string): Date | undefined {
+    return this.consideredAt.get(expertProfileId);
+  }
+
+  async findCandidates(params: {
+    supportRequestId: string;
+    requiredSkillIds: readonly string[];
+    now: Date;
+    limit: number;
+  }): Promise<readonly CandidateRow[]> {
+    const ordered = [...this.rows].sort((a, b) => byPoolOrder(a, b, this.consideredAt));
+    const admitted = ordered.slice(0, params.limit);
+
+    // Distinct stamps, in admission order — the adapter does the same. One
+    // shared timestamp would leave the pool tied next round and the id tiebreak
+    // would resolve it identically every time, so the lowest ids would be
+    // considered in every round while everyone else cycled.
+    admitted.forEach((row, index) => {
+      this.consideredAt.set(row.candidate.expertProfileId, new Date(params.now.getTime() + index));
+    });
+
+    return admitted.map((row) =>
       row.lastHeartbeatAt === FRESH ? { ...row, lastHeartbeatAt: params.now } : row,
     );
   }
+}
+
+/**
+ * Pool *membership* order — never a ranking.
+ *
+ * Least-recently-assigned first, then least-recently-considered, then id. The
+ * second term is what makes the cut rotate: without it every never-assigned
+ * expert ties on the first and the same prefix is admitted forever.
+ */
+function byPoolOrder(a: CandidateRow, b: CandidateRow, considered: Map<string, Date>): number {
+  // `idleMinutes` is this fake's stand-in for `lastAssignedAt`: null means never
+  // assigned, and a larger value means the assignment was longer ago.
+  const idleA = a.candidate.idleMinutes;
+  const idleB = b.candidate.idleMinutes;
+  if (idleA === null && idleB !== null) return -1;
+  if (idleB === null && idleA !== null) return 1;
+  if (idleA !== null && idleB !== null && idleA !== idleB) return idleB - idleA;
+
+  const seenA = considered.get(a.candidate.expertProfileId)?.getTime();
+  const seenB = considered.get(b.candidate.expertProfileId)?.getTime();
+  if (seenA === undefined && seenB !== undefined) return -1;
+  if (seenB === undefined && seenA !== undefined) return 1;
+  if (seenA !== undefined && seenB !== undefined && seenA !== seenB) return seenA - seenB;
+
+  return a.candidate.expertProfileId.localeCompare(b.candidate.expertProfileId);
 }
 
 // ── Matching repository ──────────────────────────────────────────────────────
@@ -219,6 +281,159 @@ export class FakeMatchingRepository implements MatchingRepository {
     return this.runs.filter((run) => run.supportRequestId === supportRequestId).length + 1;
   }
 
+  /** In-place field update, mirroring the adapter's `update` semantics. */
+  private patch(attemptId: string, changes: Partial<StoredAttempt>): void {
+    const index = this.attempts.findIndex((attempt) => attempt.id === attemptId);
+    if (index < 0) return;
+    this.attempts[index] = { ...(this.attempts[index] as StoredAttempt), ...changes };
+  }
+
+  // ── Interest pool ─────────────────────────────────────────────────────────
+  //
+  // These model the adapter's *guards*, not just its signatures. `recordInterest`
+  // really does refuse a second answer and `startConfirmation` really does refuse
+  // a second selection — so a missing guard in production cannot pass here.
+
+  async listInterestOpportunities(params: {
+    expertProfileId: string;
+    maxRank: number;
+    now: Date;
+  }): Promise<readonly MatchingAttemptRecord[]> {
+    return this.attempts.filter(
+      (attempt) =>
+        attempt.expertProfileId === params.expertProfileId &&
+        attempt.status === "RANKED" &&
+        attempt.rank !== null &&
+        attempt.rank <= params.maxRank,
+    );
+  }
+
+  async recordInterest(params: {
+    attemptId: string;
+    expertProfileId: string;
+    interested: boolean;
+    now: Date;
+  }): Promise<{ changed: boolean }> {
+    const attempt = this.attempts.find(
+      (candidate) =>
+        candidate.id === params.attemptId &&
+        candidate.expertProfileId === params.expertProfileId &&
+        // Only an unanswered attempt may be answered. A replayed click is a no-op.
+        candidate.status === "RANKED",
+    );
+    if (!attempt) return { changed: false };
+    this.patch(attempt.id, {
+      status: params.interested ? "INTERESTED" : "NOT_INTERESTED",
+      respondedAt: params.now,
+    });
+    return { changed: true };
+  }
+
+  async listInterested(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]> {
+    return this.attempts
+      .filter(
+        (attempt) =>
+          attempt.supportRequestId === supportRequestId && attempt.status === "INTERESTED",
+      )
+      .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  }
+
+  async markShortlisted(params: {
+    supportRequestId: string;
+    attemptIds: readonly string[];
+    now: Date;
+  }): Promise<number> {
+    let count = 0;
+    for (const attempt of this.attempts) {
+      if (attempt.supportRequestId !== params.supportRequestId) continue;
+      if (params.attemptIds.includes(attempt.id)) {
+        this.patch(attempt.id, { status: "SHORTLISTED" });
+        count += 1;
+      } else if (attempt.status === "INTERESTED" || attempt.status === "RANKED") {
+        // Everyone else in the round is out — recorded, not deleted, so the
+        // audit trail still explains who was considered.
+        this.patch(attempt.id, { status: "SUPERSEDED" });
+      }
+    }
+    return count;
+  }
+
+  async listShortlisted(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]> {
+    return this.attempts
+      .filter(
+        (attempt) =>
+          attempt.supportRequestId === supportRequestId &&
+          (attempt.status === "SHORTLISTED" || attempt.status === "CONFIRMING"),
+      )
+      .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  }
+
+  async startConfirmation(params: {
+    attemptId: string;
+    expertProfileId: string;
+    expiresAt: Date;
+    now: Date;
+  }): Promise<MatchingAttemptRecord | null> {
+    const attempt = this.attempts.find(
+      // Guarded on SHORTLISTED: a second selection, or one against an expert
+      // who already lapsed, must not re-open a window.
+      (candidate) => candidate.id === params.attemptId && candidate.status === "SHORTLISTED",
+    );
+    if (!attempt) return null;
+    // Mirrors the `one_confirming_per_request` partial unique index. Modelled
+    // here because the SHORTLISTED guard above does not catch it: two *different*
+    // attempts on one request each satisfy their own precondition, and without
+    // this the in-memory world would permit a shape Postgres rejects.
+    const alreadyConfirming = this.attempts.some(
+      (candidate) =>
+        candidate.supportRequestId === attempt.supportRequestId &&
+        candidate.id !== attempt.id &&
+        candidate.status === "CONFIRMING",
+    );
+    if (alreadyConfirming) return null;
+    this.patch(attempt.id, {
+      status: "CONFIRMING",
+      offeredAt: params.now,
+      offerExpiresAt: params.expiresAt,
+    });
+    return this.attempts.find((candidate) => candidate.id === params.attemptId) ?? null;
+  }
+
+  async settleConfirmation(params: {
+    attemptId: string;
+    expertProfileId: string;
+    toStatus: "ACCEPTED" | "TIMED_OUT" | "DECLINED";
+    now: Date;
+    releaseTo: AvailabilityStatus | null;
+    declineReason?: DeclineReasonCode | null;
+  }): Promise<MatchingAttemptRecord | null> {
+    const attempt = this.attempts.find(
+      (candidate) => candidate.id === params.attemptId && candidate.status === "CONFIRMING",
+    );
+    if (!attempt) return null;
+    this.patch(attempt.id, {
+      status: params.toStatus,
+      respondedAt: params.now,
+      declineReason: params.declineReason ?? null,
+    });
+    if (params.releaseTo) this.availability.set(params.expertProfileId, params.releaseTo);
+    return this.attempts.find((candidate) => candidate.id === params.attemptId) ?? null;
+  }
+
+  async listLapsedConfirmations(params: {
+    now: Date;
+    limit: number;
+  }): Promise<readonly MatchingAttemptRecord[]> {
+    return this.attempts
+      .filter(
+        (attempt) =>
+          attempt.status === "CONFIRMING" &&
+          attempt.offerExpiresAt !== null &&
+          attempt.offerExpiresAt <= params.now,
+      )
+      .slice(0, params.limit);
+  }
+
   async listAttemptsForRequest(
     supportRequestId: string,
   ): Promise<readonly MatchingAttemptRecord[]> {
@@ -241,6 +456,16 @@ export class FakeMatchingRepository implements MatchingRepository {
     return (
       this.attempts.find(
         (attempt) => attempt.expertProfileId === expertProfileId && attempt.status === "OFFERED",
+      ) ?? null
+    );
+  }
+
+  async findPendingConfirmationForExpert(
+    expertProfileId: string,
+  ): Promise<MatchingAttemptRecord | null> {
+    return (
+      this.attempts.find(
+        (attempt) => attempt.expertProfileId === expertProfileId && attempt.status === "CONFIRMING",
       ) ?? null
     );
   }

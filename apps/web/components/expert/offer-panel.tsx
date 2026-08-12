@@ -264,7 +264,12 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={urgent ? "danger" : "accent"} pulse>
-                New request
+                {/*
+                  A confirmation is not a race against other experts — the
+                  customer has already chosen. Saying "New request" here would
+                  tell the expert the wrong thing about what they are answering.
+                */}
+                {offer.isConfirmation ? "A customer chose you" : "New request"}
               </Badge>
               {offer.origin !== "ALGORITHMIC" && (
                 <Badge tone="warning">
@@ -287,7 +292,9 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
               {remaining}
               <span className="text-xl text-ink-subtle">s</span>
             </p>
-            <p className="mt-1 text-xs tracking-wide text-ink-subtle uppercase">to answer</p>
+            <p className="mt-1 text-xs tracking-wide text-ink-subtle uppercase">
+              {offer.isConfirmation ? "to confirm" : "to answer"}
+            </p>
           </div>
         </div>
 
@@ -408,7 +415,7 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
               disabled={pending}
               onClick={() => void respond({ decision: "accept" })}
             >
-              {pending ? "Taking it…" : "Accept"}
+              {pending ? "Taking it…" : offer.isConfirmation ? "Confirm" : "Accept"}
             </Button>
             <Button
               size="lg"

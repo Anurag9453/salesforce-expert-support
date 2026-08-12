@@ -154,6 +154,25 @@ const baseServerEnv = z.object({
    */
   REALTIME_PROVIDER: z.enum(["postgres", "ably", "mock"]).default("postgres"),
 
+  /**
+   * How a request reaches an expert.
+   *
+   * `exclusive` — the original loop: the best-ranked expert holds a 60-second
+   * offer, and a decline moves to the next. The platform picks.
+   *
+   * `interest_pool` — broadcast to the top N, collect raised hands, show the
+   * customer the best three, and the one they pick confirms within two minutes.
+   *
+   * Both are implemented and both are legal in the state machine. Defaulting to
+   * `exclusive` keeps the existing regression suites meaningful; flipping the
+   * default is a one-line change once the new flow has been exercised.
+   */
+  DISPATCH_MODE: z.enum(["exclusive", "interest_pool"]).default("exclusive"),
+  /** How many experts a broadcast reaches. Beyond this, ranking has decided. */
+  INTEREST_BROADCAST_SIZE: z.coerce.number().int().min(1).max(50).default(8),
+  /** How long to collect raised hands before showing the customer a shortlist. */
+  INTEREST_WINDOW_SECONDS: z.coerce.number().int().min(10).max(600).default(90),
+
   // ── Payments ──────────────────────────────────────────────────────────────
   /**
    * `stripe` requires both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.

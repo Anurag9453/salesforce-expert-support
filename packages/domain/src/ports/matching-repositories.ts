@@ -121,6 +121,18 @@ export interface CandidateRepository {
    * `excludeExpertProfileIds` carries the experts who already declined or timed
    * out; those are the one case where re-fetching buys nothing, because the
    * answer is recorded and permanent for this request.
+   *
+   * **Bounded, and the bound rotates.** `limit` is a real cut, so on a bench
+   * larger than it some experts are not returned at all. Which ones is not
+   * arbitrary and not fixed: implementations must order by least-recently-
+   * assigned and then least-recently-*considered*, and must record that the
+   * candidates they return have now been considered. Without that second rule
+   * the cut is stable and the same experts are returned forever — every expert
+   * who has never been assigned ties on the first rule.
+   *
+   * That ordering decides **membership only**. It carries no opinion about
+   * quality, contributes nothing to any score, and the domain re-ranks whatever
+   * it is given; a caller must not read the returned order as a ranking.
    */
   findCandidates(params: {
     readonly supportRequestId: string;
@@ -203,6 +215,18 @@ export interface MatchingRepository {
   findOpenOffer(supportRequestId: string): Promise<MatchingAttemptRecord | null>;
   /** The open offer held by an expert, across all requests. At most one. */
   findOpenOfferForExpert(expertProfileId: string): Promise<MatchingAttemptRecord | null>;
+
+  /**
+   * The interest-pool equivalent: an attempt a customer has picked and that is
+   * waiting on this expert's confirmation.
+   *
+   * Deliberately separate from `findOpenOfferForExpert` rather than folded into
+   * it, because that one also answers "does this expert already hold work?" for
+   * the exclusive dispatcher's guard. Widening it to CONFIRMING would silently
+   * change who the ranker considers eligible, which is not a decision that
+   * belongs to a UI lookup.
+   */
+  findPendingConfirmationForExpert(expertProfileId: string): Promise<MatchingAttemptRecord | null>;
 
   /**
    * This expert's attempt on this request, whatever became of it.
@@ -328,6 +352,80 @@ export interface MatchingRepository {
     readonly stalledBefore: Date;
     readonly limit: number;
   }): Promise<readonly string[]>;
+
+  // ── Interest pool ─────────────────────────────────────────────────────────
+
+  /**
+   * Requests broadcast to this expert that they have not answered yet.
+   *
+   * Capped by rank: a broadcast reaches the top N, so an attempt ranked below
+   * that is not an opportunity even though the row exists. Filtering here rather
+   * than in the caller keeps "who was actually asked" a single definition.
+   */
+  listInterestOpportunities(params: {
+    readonly expertProfileId: string;
+    readonly maxRank: number;
+    readonly now: Date;
+  }): Promise<readonly MatchingAttemptRecord[]>;
+
+  /** RANKED → INTERESTED | NOT_INTERESTED. Guarded, so a second answer is a no-op. */
+  recordInterest(params: {
+    readonly attemptId: string;
+    readonly expertProfileId: string;
+    readonly interested: boolean;
+    readonly now: Date;
+  }): Promise<{ readonly changed: boolean }>;
+
+  /** Everyone who raised a hand, in rank order. */
+  listInterested(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]>;
+
+  /** Marks the chosen few SHORTLISTED and supersedes the rest of the round. */
+  markShortlisted(params: {
+    readonly supportRequestId: string;
+    readonly attemptIds: readonly string[];
+    readonly now: Date;
+  }): Promise<number>;
+
+  listShortlisted(supportRequestId: string): Promise<readonly MatchingAttemptRecord[]>;
+
+  /**
+   * SHORTLISTED → CONFIRMING, with a stored deadline.
+   *
+   * The deadline is persisted rather than held by a timer, for the same reason
+   * the offer window is: a worker restart must not hand anyone a fresh two
+   * minutes. Guarded on the current status so two customers cannot both select.
+   */
+  startConfirmation(params: {
+    readonly attemptId: string;
+    readonly expertProfileId: string;
+    readonly expiresAt: Date;
+    readonly now: Date;
+  }): Promise<MatchingAttemptRecord | null>;
+
+  /**
+   * Settles a confirmation window: CONFIRMING → ACCEPTED | TIMED_OUT.
+   *
+   * A separate method from `closeOffer` rather than a looser guard on it,
+   * because the two protect different things. `closeOffer` is guarded on
+   * OFFERED and defends the exclusive loop; widening it would let a confirmation
+   * be settled by the offer path and vice versa. Returns null when it lost the
+   * race — a confirmation arriving just after the timer, or the other way round.
+   */
+  settleConfirmation(params: {
+    readonly attemptId: string;
+    readonly expertProfileId: string;
+    readonly toStatus: "ACCEPTED" | "TIMED_OUT" | "DECLINED";
+    readonly now: Date;
+    readonly releaseTo: AvailabilityStatus | null;
+    /** Only meaningful with DECLINED; a timeout has no reason to record. */
+    readonly declineReason?: DeclineReasonCode | null;
+  }): Promise<MatchingAttemptRecord | null>;
+
+  /** Confirmations whose window has closed but which nothing has settled yet. */
+  listLapsedConfirmations(params: {
+    readonly now: Date;
+    readonly limit: number;
+  }): Promise<readonly MatchingAttemptRecord[]>;
 
   completeRun(params: { readonly matchingRunId: string; readonly now: Date }): Promise<void>;
 }

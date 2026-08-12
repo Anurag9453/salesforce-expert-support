@@ -39,6 +39,7 @@ import {
   ExpertPhotoService,
   ExpertProfileService,
   ExpertSkillService,
+  InterestDispatch,
   MatchingService,
   NotificationService,
   PaymentWebhookService,
@@ -97,6 +98,8 @@ export interface Container {
    */
   readonly matching: MatchingService;
   readonly matchingRepo: PrismaMatchingRepository;
+  /** Present always; only *used* when DISPATCH_MODE=interest_pool. */
+  readonly interest: InterestDispatch;
   /** Null when realtime is off — the SSE route then holds the stream open and sends nothing. */
   readonly realtimeHub: PostgresRealtimeHub | null;
   readonly supportRequests: SupportRequestService;
@@ -182,6 +185,26 @@ function build(): Container {
   const attachments = new PrismaAttachmentRepository(prisma);
   const matchingRepo = new PrismaMatchingRepository(prisma);
 
+  /**
+   * Constructed unconditionally; only *reached* when DISPATCH_MODE says so.
+   *
+   * MatchingService ignores it under `exclusive`, so building it costs one
+   * object and keeps the container free of a conditional whose two branches
+   * would need testing separately.
+   */
+  const interestDispatch = new InterestDispatch({
+    matching: matchingRepo,
+    scheduler,
+    clock,
+    logger,
+    queues: {
+      interestWindowClose: QUEUES.INTEREST_WINDOW_CLOSE,
+      confirmationTimeout: QUEUES.CONFIRMATION_TIMEOUT,
+    },
+    broadcastSize: env.INTEREST_BROADCAST_SIZE,
+    interestWindowSeconds: env.INTEREST_WINDOW_SECONDS,
+  });
+
   const realtime = (() => {
     switch (env.REALTIME_PROVIDER) {
       case "mock":
@@ -244,6 +267,7 @@ function build(): Container {
       clock,
     }),
     matchingRepo,
+    interest: interestDispatch,
     realtimeHub,
     matching: new MatchingService({
       requests,
@@ -253,6 +277,8 @@ function build(): Container {
       scheduler,
       clock,
       logger,
+      interest: interestDispatch,
+      dispatchMode: env.DISPATCH_MODE,
       notifier: new DispatchNotifier({
         realtime,
         clock,

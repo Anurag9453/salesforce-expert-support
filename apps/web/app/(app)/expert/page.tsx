@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AvailabilityPanel } from "@/components/expert/availability-panel";
 import { AlertSettings } from "@/components/expert/alert-settings";
+import { InterestPanel } from "@/components/expert/interest-panel";
 import { OfferPanel } from "@/components/expert/offer-panel";
 import {
   Alert,
@@ -52,7 +53,18 @@ export default async function ExpertWorkspacePage() {
     expertAvailability.getOwn(actor),
     expertSkills.listOwn(actor),
     expertAvailability.history(actor, 10),
-    actor.expert ? matchingRepo.findOpenOfferForExpert(actor.expert.profileId) : null,
+    // Either dispatch mode's "something is waiting on you". Under interest_pool
+    // a reload mid-confirmation must show the same live countdown an offer does,
+    // and a customer is on the other side of this one already waiting.
+    actor.expert
+      ? matchingRepo
+          .findOpenOfferForExpert(actor.expert.profileId)
+          .then(
+            async (offer) =>
+              offer ??
+              (await matchingRepo.findPendingConfirmationForExpert(actor.expert!.profileId)),
+          )
+      : null,
   ]);
 
   // Server-rendered so an expert who reloads mid-offer sees the countdown
@@ -82,6 +94,13 @@ export default async function ExpertWorkspacePage() {
       />
 
       <AlertSettings />
+
+      {/*
+        Interest-pool opportunities sit above the exclusive offer. Only one of
+        the two is ever populated — which depends on DISPATCH_MODE — so the
+        workspace reads the same either way.
+      */}
+      <InterestPanel />
 
       <OfferPanel initial={offer} />
 
