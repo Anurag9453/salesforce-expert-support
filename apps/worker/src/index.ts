@@ -46,9 +46,42 @@ const logger = new ConsoleLogger(env.LOG_LEVEL, { service: "worker" });
 async function main(): Promise<void> {
   logger.info("worker starting", { nodeEnv: env.NODE_ENV });
 
-  // Migrations run through the direct (unpooled) connection; pg-boss holds
-  // long-lived listeners, which a transaction pooler would break.
-  const connectionString = env.DIRECT_DATABASE_URL ?? env.DATABASE_URL;
+  /*
+    pg-boss needs a session, not a pooled connection.
+
+    It holds `LISTEN`ers open, takes advisory locks, and polls on a schedule.
+    A transaction pooler hands each statement whichever backend is free, so the
+    listener ends up on a connection nobody notifies and the advisory lock is
+    released the moment the statement that took it returns. Neither fails loudly:
+    the queue simply goes quiet, which is the worst way for a job runner to break.
+
+    `WORKER_DATABASE_URL` first, so the worker can be pointed at its own role or
+    a session-mode pooler without disturbing how migrations connect. The
+    fallbacks keep local development on a single URL, where there is no pooler to
+    route around.
+  */
+  const connectionString = env.WORKER_DATABASE_URL ?? env.DIRECT_DATABASE_URL ?? env.DATABASE_URL;
+  const connectionSource = env.WORKER_DATABASE_URL
+    ? "WORKER_DATABASE_URL"
+    : env.DIRECT_DATABASE_URL
+      ? "DIRECT_DATABASE_URL"
+      : "DATABASE_URL";
+
+  /*
+    Logged by variable name, never by value — a connection string carries a
+    password. Worth logging at all because "the worker is running but nothing
+    happens" is the symptom of picking the pooled URL by accident, and this line
+    is the difference between spotting that in seconds and in an afternoon.
+  */
+  logger.info("worker database connection", {
+    source: connectionSource,
+    pooled: connectionSource === "DATABASE_URL",
+  });
+  if (connectionSource === "DATABASE_URL" && env.NODE_ENV === "production") {
+    logger.warn(
+      "the worker is using the pooled DATABASE_URL in production — set WORKER_DATABASE_URL to an unpooled connection, or pg-boss will stall silently",
+    );
+  }
 
   const boss = new PgBoss({
     connectionString,

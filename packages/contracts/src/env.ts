@@ -43,9 +43,33 @@ const baseServerEnv = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   // ── Phase 1: required ─────────────────────────────────────────────────────
+  /**
+   * The pooled connection, used for ordinary queries.
+   *
+   * On a managed provider this is the transaction pooler (PgBouncer). Correct
+   * for serverless request handlers, which open a connection, run a statement or
+   * two and vanish — and wrong for anything holding a session, hence the two
+   * variables below.
+   */
   DATABASE_URL: postgresUrl,
-  /** Unpooled connection. Prisma Migrate cannot run through PgBouncer. */
+  /**
+   * Unpooled. Prisma Migrate cannot run through PgBouncer, and neither can the
+   * `LISTEN` the realtime hub holds open.
+   */
   DIRECT_DATABASE_URL: postgresUrl.optional(),
+  /**
+   * Unpooled, for the always-on worker.
+   *
+   * Separate from `DIRECT_DATABASE_URL` because they are separate jobs that only
+   * happen to want the same property. Migrations connect once from a laptop or a
+   * build step; the worker holds pg-boss's listeners open for the life of the
+   * process. Giving them one variable means you cannot point the worker at its
+   * own role or pool without also changing how migrations run.
+   *
+   * Optional, and falls back — one URL is right for local development, where
+   * there is no pooler to route around.
+   */
+  WORKER_DATABASE_URL: postgresUrl.optional(),
 
   BETTER_AUTH_SECRET: z
     .string()
