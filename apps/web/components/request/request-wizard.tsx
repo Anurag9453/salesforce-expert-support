@@ -4,8 +4,9 @@ import type { PricingTierView, TaxonomyCategory } from "@sfx/contracts";
 import { countWords, MAX_DESCRIPTION_WORDS, MIN_DESCRIPTION_LENGTH } from "@sfx/contracts";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Alert, Badge, Button, Card, CardBody, Field, Input, Textarea } from "@/components/ui";
+import { Alert, Badge, Field, Input, Textarea } from "@/components/ui";
 import { AttachmentPicker, type PendingAttachment } from "./attachment-picker";
+import { ChoiceCard, Progress, StepCard } from "./wizard-parts";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -41,11 +42,22 @@ export function RequestWizard({
   categories,
   tiers,
   signedIn = true,
+  payBeforeMatch = true,
 }: {
   categories: TaxonomyCategory[];
   tiers: PricingTierView[];
   /** Anonymous visitors get an extra step; everyone else skips it entirely. */
   signedIn?: boolean;
+  /**
+   * Whether a payment is authorized before matching starts (D1).
+   *
+   * True under exclusive dispatch, where one expert gets an exclusive offer and
+   * should never be handed work that is not already paid for. False under the
+   * interest pool: the customer has not chosen anyone yet, so asking them to
+   * authorize before they have seen who is available inverts the point of
+   * showing them three people. There, payment follows the expert's confirmation.
+   */
+  payBeforeMatch?: boolean;
 }) {
   const router = useRouter();
 
@@ -82,12 +94,24 @@ export function RequestWizard({
     greyed-out "Your details" to someone already signed in would advertise a step
     that never arrives.
   */
-  const steps: Step[] = identified
-    ? ["kind", "duration", "describe", "review", "pay"]
-    : ["kind", "duration", "describe", "identify", "review", "pay"];
-  const stepLabels = identified
-    ? ["Type", "Duration", "Problem", "Review", "Payment"]
-    : ["Type", "Duration", "Problem", "You", "Review", "Payment"];
+  const steps: Step[] = [
+    "kind",
+    "duration",
+    "describe",
+    ...(identified ? [] : (["identify"] as Step[])),
+    "review",
+    // Dropped entirely rather than shown and skipped: a rail that advertises a
+    // Payment step the customer never reaches is worse than one step shorter.
+    ...(payBeforeMatch ? (["pay"] as Step[]) : []),
+  ];
+  const stepLabels = [
+    "Type",
+    "Duration",
+    "Problem",
+    ...(identified ? [] : ["You"]),
+    "Review",
+    ...(payBeforeMatch ? ["Payment"] : []),
+  ];
   const stepIndex = steps.indexOf(step);
   const afterDescribe: Step = identified ? "review" : "identify";
 
@@ -96,7 +120,7 @@ export function RequestWizard({
     setStep(next === "instant" ? "duration" : "longterm");
   }
 
-  async function pay() {
+  async function submitRequest() {
     if (!tier || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -440,10 +464,21 @@ export function RequestWizard({
       {step === "review" && tier && (
         <StepCard
           title="Does this look right?"
-          hint="Nothing is charged and no expert is contacted until the next step."
+          hint={
+            payBeforeMatch
+              ? "Nothing is charged and no expert is contacted until the next step."
+              : "We will start looking straight away. You are not charged anything yet."
+          }
           onBack={() => setStep("describe")}
-          onNext={() => setStep("pay")}
-          nextLabel="Continue to payment"
+          onNext={payBeforeMatch ? () => setStep("pay") : () => void submitRequest()}
+          nextLabel={
+            payBeforeMatch
+              ? "Continue to payment"
+              : submitting
+                ? "Starting the search…"
+                : "Find me an expert"
+          }
+          nextDisabled={!payBeforeMatch && submitting}
         >
           <dl className="divide-y divide-border">
             <Row label="Type">Instant support</Row>
@@ -473,7 +508,7 @@ export function RequestWizard({
         <StepCard
           title="Payment"
           onBack={() => setStep("review")}
-          onNext={() => void pay()}
+          onNext={() => void submitRequest()}
           nextLabel={
             submitting ? "Authorising…" : `Authorise ${formatMoney(tier.priceCents, tier.currency)}`
           }
@@ -540,104 +575,6 @@ export function RequestWizard({
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
 /** Where you are, and how much is left. Named steps beat a percentage. */
-function Progress({ index, labels }: { index: number; labels: readonly string[] }) {
-  return (
-    <ol className="flex items-center gap-2" aria-label="Progress">
-      {labels.map((label, position) => {
-        const done = position < index;
-        const current = position === index;
-        return (
-          <li key={label} className="flex flex-1 items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <span
-                className={cn(
-                  "block text-[0.6875rem] font-medium tracking-wide uppercase",
-                  current ? "text-accent" : done ? "text-ink-muted" : "text-ink-subtle",
-                )}
-              >
-                {label}
-              </span>
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "mt-1 block h-0.5 rounded-full transition-colors duration-300",
-                  current || done ? "bg-accent" : "bg-border",
-                )}
-              />
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function StepCard({
-  title,
-  hint,
-  children,
-  onBack,
-  onNext,
-  nextLabel = "Next",
-  nextDisabled,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-  onBack: () => void;
-  onNext: () => void;
-  nextLabel?: string;
-  nextDisabled?: boolean;
-}) {
-  return (
-    <Card accent className="animate-rise-in">
-      <CardBody className="p-6">
-        <h2 className="font-display text-xl font-medium text-ink">{title}</h2>
-        {hint && <p className="mt-1 text-sm text-ink-muted">{hint}</p>}
-        <div className="mt-5">{children}</div>
-        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-5">
-          <Button size="lg" onClick={onNext} disabled={nextDisabled}>
-            {nextLabel}
-          </Button>
-          <Button variant="ghost" onClick={onBack}>
-            Back
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function ChoiceCard({
-  title,
-  lede,
-  body,
-  badge,
-  action,
-  onSelect,
-}: {
-  title: string;
-  lede: string;
-  body: string;
-  badge: React.ReactNode;
-  action: string;
-  onSelect: () => void;
-}) {
-  return (
-    <Card interactive accent className="flex flex-col">
-      <CardBody className="flex flex-1 flex-col p-6">
-        {badge}
-        <h2 className="font-display mt-3 text-xl font-medium text-ink">{title}</h2>
-        <p className="mt-1 text-sm font-medium text-ink-muted">{lede}</p>
-        <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-muted">{body}</p>
-        <Button size="lg" className="mt-5 w-full" onClick={onSelect}>
-          {action}
-        </Button>
-      </CardBody>
-    </Card>
-  );
-}
-
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[7rem_1fr] gap-4 py-3">

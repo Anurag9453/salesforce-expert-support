@@ -63,6 +63,7 @@ function expert(profileId: string): Actor {
     email: `${profileId}@x.test`,
     roles: ["CUSTOMER", "EXPERT"],
     status: "ACTIVE",
+    emailVerified: true,
     expert: { profileId, status: "APPROVED" },
   } as unknown as Actor;
 }
@@ -497,6 +498,7 @@ describe("authorization boundaries", () => {
       userId: "u2",
       roles: ["CUSTOMER", "EXPERT"],
       status: "ACTIVE",
+      emailVerified: true,
       expert: { profileId: "exp_1", status: "SUBMITTED" },
     } as unknown as Actor;
     await expect(dispatch.opportunitiesFor(pending)).rejects.toThrow(/offer:read_own/);

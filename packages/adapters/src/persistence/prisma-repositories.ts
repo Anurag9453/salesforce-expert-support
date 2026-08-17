@@ -78,6 +78,11 @@ type PrismaExpert = {
   linkedinUrl: string | null;
   githubUrl: string | null;
   employmentStatus: string | null;
+  phone: string | null;
+  trailheadUrl: string | null;
+  verifiedCertifications: string[];
+  certificationsVerifiedAt: Date | null;
+  certificationsVerifiedBy: string | null;
   termsAcceptedAt: Date | null;
   confidentialityAcceptedAt: Date | null;
   createdAt: Date;
@@ -176,6 +181,8 @@ export class PrismaExpertApplicationRepository implements ExpertApplicationRepos
     if (draft.professionalSummary !== undefined) {
       data.professionalSummary = draft.professionalSummary;
     }
+    if (draft.phone !== undefined) data.phone = draft.phone;
+    if (draft.trailheadUrl !== undefined) data.trailheadUrl = draft.trailheadUrl || null;
     if (draft.languages !== undefined) data.languages = { set: [...draft.languages] };
     if (draft.certifications !== undefined)
       data.certifications = { set: [...draft.certifications] };
@@ -201,6 +208,9 @@ export class PrismaExpertApplicationRepository implements ExpertApplicationRepos
     reviewedByUserId?: string | null;
     reviewNotes?: string | null;
     submittedAt?: Date | null;
+    verifiedCertifications?: readonly string[];
+    certificationsVerifiedAt?: Date;
+    certificationsVerifiedBy?: string;
   }): Promise<ExpertApplicationRecord> {
     const data: Record<string, unknown> = {
       status: params.status,
@@ -209,6 +219,17 @@ export class PrismaExpertApplicationRepository implements ExpertApplicationRepos
     if (params.reviewedByUserId !== undefined) data.reviewedByUserId = params.reviewedByUserId;
     if (params.reviewNotes !== undefined) data.reviewNotes = params.reviewNotes;
     if (params.submittedAt !== undefined) data.submittedAt = params.submittedAt;
+    // Written only on approval, and never cleared by a later status change: what
+    // a reviewer checked stays true even after the expert is suspended.
+    if (params.verifiedCertifications !== undefined) {
+      data.verifiedCertifications = { set: [...params.verifiedCertifications] };
+    }
+    if (params.certificationsVerifiedAt !== undefined) {
+      data.certificationsVerifiedAt = params.certificationsVerifiedAt;
+    }
+    if (params.certificationsVerifiedBy !== undefined) {
+      data.certificationsVerifiedBy = params.certificationsVerifiedBy;
+    }
 
     const row = await this.db.expertProfile.update({ where: { id: params.id }, data });
     return toExpertRecord(row);

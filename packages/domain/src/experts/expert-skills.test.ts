@@ -81,6 +81,7 @@ const expert: Actor = {
   email: "e@example.com",
   roles: ["CUSTOMER", "EXPERT"],
   status: "ACTIVE",
+  emailVerified: true,
   expert: { profileId: "exp_1", status: "APPROVED" },
 };
 
@@ -89,6 +90,7 @@ const admin: Actor = {
   email: "admin@example.com",
   roles: ["CUSTOMER", "ADMIN"],
   status: "ACTIVE",
+  emailVerified: true,
 };
 
 beforeEach(async () => {

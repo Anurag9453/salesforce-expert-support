@@ -33,6 +33,7 @@ export async function getActor(): Promise<MaybeActor> {
       email: true,
       roles: true,
       status: true,
+      emailVerified: true,
       customer: { select: { id: true } },
       expert: { select: { id: true, status: true } },
     },
@@ -62,6 +63,7 @@ export async function getActor(): Promise<MaybeActor> {
     email: user.email,
     roles: user.roles,
     status: user.status,
+    emailVerified: user.emailVerified,
     ...(customerProfileId ? { customerProfileId } : {}),
     ...(user.expert ? { expert: { profileId: user.expert.id, status: user.expert.status } } : {}),
   };

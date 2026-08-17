@@ -245,11 +245,52 @@ export interface JobScheduler {
  */
 export interface SupportLeadRecord {
   readonly id: string;
-  readonly customerId: string;
+  readonly customerId: string | null;
+  readonly name: string;
+  readonly email: string;
+  readonly phone: string;
   readonly summary: string;
+  readonly durationMinutes: number | null;
+  readonly quotedPriceCents: number | null;
+  readonly currency: string | null;
+  readonly crmRef: string | null;
+  readonly crmSyncedAt: Date | null;
+  readonly crmAttempts: number;
+  readonly crmLastError: string | null;
   readonly createdAt: Date;
 }
 
 export interface SupportLeadRepository {
-  create(input: { customerId: string; summary: string }): Promise<SupportLeadRecord>;
+  create(input: {
+    readonly customerId: string | null;
+    readonly name: string;
+    readonly email: string;
+    readonly phone: string;
+    readonly summary: string;
+    readonly durationMinutes: number | null;
+    readonly quotedPriceCents: number | null;
+    readonly currency: string | null;
+  }): Promise<SupportLeadRecord>;
+
+  findById(id: string): Promise<SupportLeadRecord | null>;
+
+  /**
+   * Record the outcome of a CRM push.
+   *
+   * Success and failure share one method because they are one event — "we tried
+   * to sync this and here is what happened" — and splitting them invites a
+   * caller that records the failure and forgets to clear it on the retry.
+   */
+  recordCrmOutcome(input: {
+    readonly id: string;
+    readonly crmRef: string | null;
+    readonly syncedAt: Date | null;
+    readonly error: string | null;
+  }): Promise<void>;
+
+  /** Leads that never reached the CRM, oldest first. Drives the retry sweep. */
+  listAwaitingCrm(params: {
+    readonly limit: number;
+    readonly maxAttempts: number;
+  }): Promise<readonly SupportLeadRecord[]>;
 }

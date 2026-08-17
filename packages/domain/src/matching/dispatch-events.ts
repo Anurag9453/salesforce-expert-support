@@ -171,6 +171,84 @@ export class DispatchNotifier {
   }
 
   /**
+   * The customer's three candidates are ready to look at.
+   *
+   * Durable, not just a doorbell, because this is the step where the product
+   * asks the customer to *do* something. A realtime signal reaches the tab they
+   * left open; this reaches the person who went to make coffee while we searched.
+   */
+  async shortlistReady(params: {
+    readonly supportRequestId: string;
+    readonly customerId: string;
+    readonly customerProfileId: string;
+    readonly candidates: number;
+  }): Promise<void> {
+    await this.notifyRequestChanged(params.supportRequestId, params.customerId);
+    await this.deps.notifications?.recordForCustomer({
+      customerProfileId: params.customerProfileId,
+      event: NOTIFICATION_EVENTS.SHORTLIST_READY,
+      title:
+        params.candidates === 1
+          ? "An expert is available for your request"
+          : `${String(params.candidates)} experts are available for your request`,
+      body: "Choose who you would like to work with.",
+      href: `/request/${params.supportRequestId}`,
+    });
+  }
+
+  /**
+   * A customer picked this expert, and the two-minute clock is running.
+   *
+   * The most time-critical notification in the product, and the one the flow was
+   * missing: `SELECTED_BY_CUSTOMER` existed in the vocabulary but nothing ever
+   * emitted it, so an expert whose page was not open simply never learned they
+   * had been chosen — and their window closed while they were elsewhere.
+   *
+   * It still says nothing about the customer or the problem. "Two minutes" is
+   * the only urgency it needs to carry.
+   */
+  async candidateSelected(params: {
+    readonly expertProfileId: string;
+    readonly supportRequestId: string;
+    readonly customerId: string;
+  }): Promise<void> {
+    await this.publish(
+      { kind: "expert", expertId: params.expertProfileId },
+      DISPATCH_EVENTS.OFFER_OPENED,
+    );
+    await this.notifyRequestChanged(params.supportRequestId, params.customerId);
+    await this.deps.notifications?.recordForExpert({
+      expertProfileId: params.expertProfileId,
+      event: NOTIFICATION_EVENTS.SELECTED_BY_CUSTOMER,
+      title: "A customer chose you",
+      body: "You have two minutes to confirm.",
+      href: `/expert/request/${params.supportRequestId}`,
+    });
+  }
+
+  /**
+   * The expert said yes; the customer owes money before anything can happen.
+   *
+   * This is the one notification the customer must not miss, because the flow
+   * stops dead until they act — an expert has committed their time and is now
+   * waiting on a payment screen the customer may not know exists.
+   */
+  async paymentDue(params: {
+    readonly supportRequestId: string;
+    readonly customerId: string;
+    readonly customerProfileId: string;
+  }): Promise<void> {
+    await this.notifyRequestChanged(params.supportRequestId, params.customerId);
+    await this.deps.notifications?.recordForCustomer({
+      customerProfileId: params.customerProfileId,
+      event: NOTIFICATION_EVENTS.PAYMENT_DUE,
+      title: "Your expert confirmed",
+      body: "Pay to get your meeting link.",
+      href: `/request/${params.supportRequestId}`,
+    });
+  }
+
+  /**
    * Both channels, every time.
    *
    * `customer:<id>` is what the customer's own screen listens on — stable for the

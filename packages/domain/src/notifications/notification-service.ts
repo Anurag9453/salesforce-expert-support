@@ -38,6 +38,9 @@ export const NOTIFICATION_EVENTS = {
   REQUEST_NO_EXPERT: "request.no_expert",
   SHORTLIST_READY: "shortlist.ready",
   SELECTED_BY_CUSTOMER: "shortlist.selected",
+  PAYMENT_DUE: "payment.due",
+  SESSION_READY: "session.ready",
+  SESSION_CUSTOMER_JOINED: "session.customer_joined",
   APPLICATION_DECIDED: "application.decided",
 } as const;
 

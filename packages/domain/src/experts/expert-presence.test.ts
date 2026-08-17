@@ -29,6 +29,7 @@ function actor(status: ExpertStatus = "APPROVED", overrides: Partial<Actor> = {}
     email: "e@example.com",
     roles: ["CUSTOMER", "EXPERT"],
     status: "ACTIVE",
+    emailVerified: true,
     expert: { profileId: "exp_1", status },
     ...overrides,
   };
@@ -255,6 +256,7 @@ describe("ownership", () => {
       email: "c@example.com",
       roles: ["CUSTOMER"],
       status: "ACTIVE",
+      emailVerified: true,
     };
     await expect(service.getOwn(customer)).rejects.toThrow(ForbiddenError);
   });

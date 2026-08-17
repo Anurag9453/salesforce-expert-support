@@ -88,8 +88,13 @@ class InMemoryExpertRepository implements ExpertApplicationRepository {
       timezone: null,
       yearsExperience: null,
       professionalSummary: null,
+      phone: null,
+      trailheadUrl: null,
       languages: [],
       certifications: [],
+      verifiedCertifications: [],
+      certificationsVerifiedAt: null,
+      certificationsVerifiedBy: null,
       linkedinUrl: null,
       githubUrl: null,
       employmentStatus: null,
@@ -117,6 +122,8 @@ class InMemoryExpertRepository implements ExpertApplicationRepository {
       ...(draft.professionalSummary !== undefined
         ? { professionalSummary: draft.professionalSummary }
         : {}),
+      ...(draft.phone !== undefined ? { phone: draft.phone } : {}),
+      ...(draft.trailheadUrl !== undefined ? { trailheadUrl: draft.trailheadUrl || null } : {}),
       ...(draft.languages !== undefined ? { languages: [...draft.languages] } : {}),
       ...(draft.certifications !== undefined ? { certifications: [...draft.certifications] } : {}),
       ...(draft.linkedinUrl !== undefined ? { linkedinUrl: draft.linkedinUrl || null } : {}),
@@ -141,6 +148,9 @@ class InMemoryExpertRepository implements ExpertApplicationRepository {
     reviewedByUserId?: string | null;
     reviewNotes?: string | null;
     submittedAt?: Date | null;
+    verifiedCertifications?: readonly string[];
+    certificationsVerifiedAt?: Date;
+    certificationsVerifiedBy?: string;
   }): Promise<ExpertApplicationRecord> {
     const current = this.applications.get(params.id);
     if (!current) throw new Error(`Unknown application ${params.id}`);
@@ -153,6 +163,15 @@ class InMemoryExpertRepository implements ExpertApplicationRepository {
         : {}),
       ...(params.reviewNotes !== undefined ? { reviewNotes: params.reviewNotes } : {}),
       ...(params.submittedAt !== undefined ? { submittedAt: params.submittedAt } : {}),
+      ...(params.verifiedCertifications !== undefined
+        ? { verifiedCertifications: [...params.verifiedCertifications] }
+        : {}),
+      ...(params.certificationsVerifiedAt !== undefined
+        ? { certificationsVerifiedAt: params.certificationsVerifiedAt }
+        : {}),
+      ...(params.certificationsVerifiedBy !== undefined
+        ? { certificationsVerifiedBy: params.certificationsVerifiedBy }
+        : {}),
       updatedAt: params.now,
     };
     this.applications.set(params.id, updated);

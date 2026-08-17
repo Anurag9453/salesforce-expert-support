@@ -61,6 +61,16 @@ export const expertApplicationDraftSchema = z
     timezone: timeZoneId.optional(),
     yearsExperience: z.coerce.number().int().min(0).max(60).optional(),
     professionalSummary: z.string().min(1).max(4000).optional(),
+    /** Deliberately loose, like the customer's — numbers vary by country and a
+     * strict pattern rejects real people. */
+    phone: z
+      .string()
+      .trim()
+      .min(6)
+      .max(32)
+      .regex(/^[+()\d][\d\s()+.-]*$/, "That phone number does not look right.")
+      .optional(),
+    trailheadUrl: url.or(z.literal("")).optional(),
     languages: z
       .array(z.string().regex(ISO_LANGUAGE, "must be an ISO language code such as 'en' or 'en-IN'"))
       .max(20)
@@ -102,8 +112,14 @@ export const expertApplicationSchema = z.object({
   timezone: z.string().nullable(),
   yearsExperience: z.number().nullable(),
   professionalSummary: z.string().nullable(),
+  phone: z.string().nullable(),
+  trailheadUrl: z.string().nullable(),
   languages: z.array(z.string()),
+  /** What the applicant claims. */
   certifications: z.array(z.string()),
+  /** What a reviewer confirmed against the Trailhead profile. Never merged. */
+  verifiedCertifications: z.array(z.string()),
+  certificationsVerifiedAt: z.string().nullable(),
   linkedinUrl: z.string().nullable(),
   githubUrl: z.string().nullable(),
   employmentStatus: z.string().nullable(),
@@ -127,6 +143,16 @@ export const adminExpertDecisionSchema = z.discriminatedUnion("decision", [
   z.object({
     decision: z.literal("approve"),
     notes: z.string().min(1, "Record why this expert was approved").max(2000),
+    /**
+     * What the reviewer confirmed on the applicant's Trailhead profile.
+     *
+     * Required as a field, but allowed to be empty: plenty of genuinely good
+     * Salesforce people hold no certifications, and demanding at least one
+     * would push reviewers into inventing them. What is *not* optional is
+     * answering the question — approving without saying what you checked is the
+     * behaviour this exists to stop.
+     */
+    verifiedCertifications: z.array(z.string().trim().min(1).max(160)).max(40),
   }),
   z.object({
     decision: z.literal("reject"),

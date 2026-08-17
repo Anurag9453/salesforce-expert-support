@@ -28,6 +28,8 @@ const FIELD_LABELS: Record<string, string> = {
   country: "Country",
   timezone: "Time zone",
   yearsExperience: "Years of Salesforce experience",
+  phone: "Phone number",
+  trailheadUrl: "Trailhead profile",
   professionalSummary: "Professional summary",
   termsAcceptedAt: "Terms acceptance",
   confidentialityAcceptedAt: "Confidentiality acceptance",
@@ -58,6 +60,8 @@ export function ExpertApplicationForm({
       timezone: String(form.get("timezone") ?? ""),
       yearsExperience: Number(form.get("yearsExperience") ?? 0),
       professionalSummary: String(form.get("professionalSummary") ?? ""),
+      phone: String(form.get("phone") ?? ""),
+      trailheadUrl: String(form.get("trailheadUrl") ?? ""),
       linkedinUrl: String(form.get("linkedinUrl") ?? ""),
       githubUrl: String(form.get("githubUrl") ?? ""),
       employmentStatus: String(form.get("employmentStatus") ?? ""),
@@ -156,6 +160,43 @@ export function ExpertApplicationForm({
                 defaultValue={application.yearsExperience ?? 0}
                 disabled={readOnly}
                 invalid={Boolean(fieldErrors.yearsExperience)}
+              />
+            </Field>
+
+            {/*
+              Both required before submission, and both are vetting rather than
+              profile: the phone is how we reach this person when a session goes
+              wrong, and the Trailhead profile is the one claim on this form a
+              reviewer can independently check in under a minute.
+            */}
+            <Field id="phone" label="Phone number" required error={fieldErrors.phone}>
+              <Input
+                id="phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="+91 98765 43210"
+                defaultValue={application.phone ?? ""}
+                disabled={readOnly}
+                invalid={Boolean(fieldErrors.phone)}
+              />
+            </Field>
+
+            <Field
+              id="trailheadUrl"
+              label="Trailhead profile"
+              hint="Your public Trailblazer profile. We check your certifications against it."
+              required
+              error={fieldErrors.trailheadUrl}
+            >
+              <Input
+                id="trailheadUrl"
+                name="trailheadUrl"
+                type="url"
+                placeholder="https://www.salesforce.com/trailblazer/yourprofile"
+                defaultValue={application.trailheadUrl ?? ""}
+                disabled={readOnly}
+                invalid={Boolean(fieldErrors.trailheadUrl)}
               />
             </Field>
 

@@ -50,8 +50,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       */}
       <header className="sticky top-0 z-40 border-b border-border bg-surface-raised/85 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-5 px-6">
+          {/*
+            Home, not the dashboard. The landing page carries the "I need help /
+            I can help" fork, and that is the one thing a signed-in customer has
+            no other route to — the dashboard deliberately does not repeat it,
+            since someone already asking for help has answered that question.
+            Pointing the brand at /dashboard made the fork unreachable for
+            exactly the people most likely to eventually apply as experts.
+          */}
           <Link
-            href="/dashboard"
+            href="/"
             className="font-display interactive shrink-0 text-[0.9375rem] font-medium tracking-tight text-ink hover:text-accent"
           >
             Salesforce Expert Support

@@ -1,38 +1,176 @@
-import { authorize, type Actor } from "../authorization/index.js";
-import type { SupportLeadRecord, SupportLeadRepository } from "../ports/request-repositories.js";
-import { ValidationError } from "../shared/errors.js";
+import type { Clock } from "../ports/clock.js";
+import type { CrmGateway } from "../ports/crm.js";
+import type { Logger } from "../ports/logger.js";
+import type {
+  JobScheduler,
+  SupportLeadRecord,
+  SupportLeadRepository,
+} from "../ports/request-repositories.js";
+import { scanForSecrets } from "../security/secret-scanner.js";
+import { NotFoundError } from "../shared/errors.js";
 
 /**
- * Long-term support, which is not a product yet.
+ * Someone asks for help, and a human gets told.
  *
- * The entry screen offers it as one of two choices, so something has to catch
- * the enquiry. This is that: authorize, require a customer profile, store the
- * summary. There is deliberately no pricing, no matching and no state machine —
- * building a workflow for a product nobody has designed would be worse than the
- * honest gap.
+ * The whole customer-facing product in this phase. No account, no matching, no
+ * payment, no session — the platform captures the enquiry reliably and puts it
+ * in front of the sales team, who route it to an approved expert by hand.
  *
- * The caller redacts before handing the summary over, exactly as request intake
- * does. This service does not scan, so that the ordering rule — redact before
- * anything is stored — has one owner rather than two implementations.
+ * ## Anonymous on purpose
+ *
+ * There is no `authorize` call here, and that is the design rather than an
+ * oversight: the form is public, and requiring an account to ask a question is
+ * friction on the single action the site exists to collect. The protections that
+ * still apply to a stranger remain — redaction here, rate limiting at the route.
+ *
+ * ## The CRM is downstream of the record, never in front of it
+ *
+ * `submit` writes the lead and returns. Pushing to Salesforce is a scheduled
+ * job, so an outage, a rate limit or an expired token costs a retry rather than
+ * an enquiry. Doing it inline would make the customer's "thank you" screen
+ * depend on a third party being awake.
  */
+
+export interface LeadServiceDeps {
+  readonly leads: SupportLeadRepository;
+  readonly scheduler: JobScheduler;
+  readonly clock: Clock;
+  readonly logger: Logger;
+  readonly crmSyncQueue: string;
+  /** Absent when no CRM is configured; sync then does nothing rather than fail. */
+  readonly crm?: CrmGateway;
+  /** How many failed pushes before a lead stops being retried automatically. */
+  readonly maxCrmAttempts?: number;
+}
+
+export interface SubmitLeadInput {
+  readonly name: string;
+  readonly email: string;
+  readonly phone: string;
+  readonly summary: string;
+  readonly durationMinutes: number | null;
+  readonly quotedPriceCents: number | null;
+  readonly currency: string | null;
+  /** Set only when a signed-in customer submits; anonymous is the normal case. */
+  readonly customerId?: string | null;
+}
+
+const DEFAULT_MAX_ATTEMPTS = 8;
+
 export class SupportLeadService {
-  constructor(private readonly deps: { leads: SupportLeadRepository }) {}
+  constructor(private readonly deps: LeadServiceDeps) {}
 
-  async create(actor: Actor, input: { summary: string }): Promise<SupportLeadRecord> {
-    authorize(actor, "support_request:create");
+  async submit(input: SubmitLeadInput): Promise<SupportLeadRecord> {
+    // Requirement 31, and it matters more here than anywhere else in the
+    // product: an unauthenticated box on a public page is the most likely place
+    // for someone to paste a session id, a password or a connection string.
+    const summary = scanForSecrets(input.summary);
+    const name = scanForSecrets(input.name);
 
-    // Reusing the request permission rather than minting a lead-specific one:
-    // anyone who may ask for help may ask for the long-term version of it, and
-    // a second permission with identical holders is a permission that will drift.
-    if (!actor.customerProfileId) {
-      throw new ValidationError("You need a customer profile before you can ask for help.", {
-        customer: ["missing"],
+    const lead = await this.deps.leads.create({
+      customerId: input.customerId ?? null,
+      name: name.redacted,
+      email: input.email.trim().toLowerCase(),
+      phone: input.phone.trim(),
+      summary: summary.redacted,
+      durationMinutes: input.durationMinutes,
+      quotedPriceCents: input.quotedPriceCents,
+      currency: input.currency,
+    });
+
+    // Enqueued after the write and keyed on the lead, so a duplicate delivery
+    // cannot become a duplicate record in the CRM.
+    await this.deps.scheduler.enqueue({
+      queue: this.deps.crmSyncQueue,
+      payload: { leadId: lead.id },
+      singletonKey: `crm-sync:${lead.id}`,
+    });
+
+    this.deps.logger.info("lead captured", {
+      leadId: lead.id,
+      durationMinutes: input.durationMinutes,
+      redactedFindings: summary.findings.length,
+    });
+
+    return lead;
+  }
+
+  /**
+   * Push one lead to the CRM.
+   *
+   * Idempotent in both directions: a lead already synced returns immediately,
+   * and the key handed to the gateway lets the CRM reject a duplicate we failed
+   * to record the first time.
+   */
+  async syncToCrm(leadId: string): Promise<{ status: string }> {
+    const lead = await this.deps.leads.findById(leadId);
+    if (!lead) throw new NotFoundError("SupportLead", leadId);
+    if (lead.crmSyncedAt) return { status: "already_synced" };
+    if (!this.deps.crm) return { status: "no_crm_configured" };
+
+    const result = await this.deps.crm.pushLead({
+      idempotencyKey: lead.id,
+      name: lead.name,
+      email: lead.email,
+      phone: lead.phone,
+      summary: lead.summary,
+      durationMinutes: lead.durationMinutes,
+      quotedPriceCents: lead.quotedPriceCents,
+      currency: lead.currency,
+      submittedAt: lead.createdAt,
+    });
+
+    if (result.status === "created" || result.status === "duplicate") {
+      await this.deps.leads.recordCrmOutcome({
+        id: lead.id,
+        crmRef: result.recordId,
+        syncedAt: this.deps.clock.now(),
+        error: null,
       });
+      this.deps.logger.info("lead reached the CRM", {
+        leadId: lead.id,
+        crmRef: result.recordId,
+        duplicate: result.status === "duplicate",
+      });
+      return { status: result.status };
     }
 
-    return this.deps.leads.create({
-      customerId: actor.customerProfileId,
-      summary: input.summary,
+    await this.deps.leads.recordCrmOutcome({
+      id: lead.id,
+      crmRef: null,
+      syncedAt: null,
+      error: result.reason,
     });
+
+    if (result.status === "rejected") {
+      // Deliberately not thrown. A rejection is permanent, so failing the job
+      // would retry something that cannot succeed and bury the lead in a queue
+      // rather than surfacing it. The row keeps the reason; the sweep skips it.
+      this.deps.logger.error("the CRM refused a lead — needs a human", {
+        leadId: lead.id,
+        reason: result.reason,
+      });
+      return { status: "rejected" };
+    }
+
+    // Retryable: throwing hands the backoff to the job runner, which already
+    // knows how to do it.
+    throw new Error(`CRM push failed for ${lead.id}: ${result.reason}`);
+  }
+
+  /** Backstop for a lost job. Same shape as the other reconcilers. */
+  async retryUnsynced(limit = 25): Promise<{ attempted: number }> {
+    const stuck = await this.deps.leads.listAwaitingCrm({
+      limit,
+      maxAttempts: this.deps.maxCrmAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    });
+    for (const lead of stuck) {
+      await this.deps.scheduler.enqueue({
+        queue: this.deps.crmSyncQueue,
+        payload: { leadId: lead.id },
+        singletonKey: `crm-sync:${lead.id}`,
+      });
+    }
+    return { attempted: stuck.length };
   }
 }

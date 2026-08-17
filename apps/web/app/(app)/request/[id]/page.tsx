@@ -4,6 +4,7 @@ import { isDomainError } from "@sfx/domain";
 import { Badge, Card, CardBody, CardHeader, CardTitle, PageHeader } from "@/components/ui";
 import { toShortlistView } from "@/lib/matching-view";
 import { CandidateCards } from "@/components/request/candidate-cards";
+import { PayPanel } from "@/components/request/pay-panel";
 import { RequestStatus } from "@/components/request/request-status";
 import { getContainer } from "@/lib/container";
 import { loadMatchedExpert, toRequestView } from "@/lib/request-view";
@@ -66,6 +67,25 @@ export default async function RequestPage({ params }: { params: Promise<{ id: st
       */}
       {shortlist ? (
         <CandidateCards supportRequestId={record.id} initial={shortlist} />
+      ) : record.state === "PAYMENT_PENDING" ? (
+        /*
+          Payment takes the slot outright rather than sitting under a status
+          line. Nothing else is happening — the search is over, an expert has
+          committed, and the only thing standing between the customer and their
+          meeting is this button.
+        */
+        <PayPanel
+          supportRequestId={record.id}
+          amountCents={view.price.amountMinor}
+          currency={view.price.currency}
+          durationMinutes={view.price.durationMinutes}
+          /*
+            No name. `matchedExpert` deliberately carries experience and counts
+            rather than an identity — the customer already knows who they picked,
+            and the view is not the place to start leaking expert identities.
+          */
+          expertName={null}
+        />
       ) : (
         <RequestStatus initial={view} />
       )}

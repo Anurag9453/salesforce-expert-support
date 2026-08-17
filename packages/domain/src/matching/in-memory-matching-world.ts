@@ -391,6 +391,16 @@ export class FakeMatchingRepository implements MatchingRepository {
         candidate.status === "CONFIRMING",
     );
     if (alreadyConfirming) return null;
+    // Mirrors `one_confirming_per_expert`. Raising a hand on several requests is
+    // intended; being asked to confirm two at once is not, because the expert is
+    // only ever shown one of them and the other expires unseen.
+    const expertBusy = this.attempts.some(
+      (candidate) =>
+        candidate.expertProfileId === attempt.expertProfileId &&
+        candidate.id !== attempt.id &&
+        candidate.status === "CONFIRMING",
+    );
+    if (expertBusy) return null;
     this.patch(attempt.id, {
       status: "CONFIRMING",
       offeredAt: params.now,

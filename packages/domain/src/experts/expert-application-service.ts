@@ -124,6 +124,26 @@ export class ExpertApplicationService {
     authorize(actor, "expert_application:submit_own");
     const now = this.clock.now();
 
+    /*
+      Vetting starts here, not at the admin's desk.
+
+      An unverified address means we have no way to reach this person — and
+      every later check assumes we can. Someone may browse and ask for help
+      without confirming their email; offering themselves as an expert is
+      different, because the platform would be putting a stranger it cannot
+      contact in front of a customer's production org.
+
+      Enforced at submission rather than at login on purpose: it is a product
+      rule about who may be offered as an expert, not a rule about who may sign
+      in, and the two do not belong in the same place.
+    */
+    if (!actor.emailVerified) {
+      throw new ValidationError(
+        "Confirm your email address before submitting your application. Check your inbox for the link.",
+        { email: ["not yet verified"] },
+      );
+    }
+
     return this.uow.transaction(async (repos) => {
       const application = await this.requireOwn(repos, actor);
       assertExpertTransition(application.status, "SUBMITTED", "EXPERT");

@@ -13,6 +13,7 @@ export const QUEUES = {
   MATCHING_DEADLINE: "matching-deadline",
   INTEREST_WINDOW_CLOSE: "interest-window-close",
   CONFIRMATION_TIMEOUT: "confirmation-timeout",
+  CRM_SYNC: "crm-sync",
   HEARTBEAT_SWEEP: "heartbeat-sweep",
   NOTIFICATION_DISPATCH: "notification-dispatch",
 } as const;

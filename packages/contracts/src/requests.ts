@@ -203,12 +203,34 @@ export function countWords(text: string): number {
  * promises nothing. No pricing, no matching, no state machine — see the
  * `SupportLead` comment in the schema.
  */
+/**
+ * A public enquiry. All three contact fields are mandatory, because the entire
+ * point of the form is being able to reach the person afterwards.
+ *
+ * The messages are written to be read by a stranger who is already mildly
+ * annoyed at filling in a form, so they say what to do rather than what is wrong.
+ */
 export const createSupportLeadSchema = z.object({
+  name: z.string().trim().min(1, "Please tell us your name.").max(120),
+  email: z.string().trim().toLowerCase().email("That email address does not look right."),
+  /**
+   * Loose on purpose. Phone numbers vary enormously by country and a strict
+   * pattern rejects real people — this checks it is plausibly a number and
+   * leaves the rest to the human who calls it.
+   */
+  phone: z
+    .string()
+    .trim()
+    .min(6, "Please include a phone number we can reach you on.")
+    .max(32)
+    .regex(/^[+()\d][\d\s()+.-]*$/, "That phone number does not look right."),
   summary: z
     .string()
     .trim()
     .min(MIN_DESCRIPTION_LENGTH, "Tell us a little about what you need.")
     .max(MAX_DESCRIPTION_LENGTH),
+  /** Optional: the tier they picked, so the quote is recorded with the enquiry. */
+  pricingTierId: cuidSchema.optional(),
 });
 export type CreateSupportLeadInput = z.infer<typeof createSupportLeadSchema>;
 

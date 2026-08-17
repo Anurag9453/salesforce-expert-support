@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { IllegalTransitionError } from "../shared/errors.js";
 import {
   assertExpertTransition,
+  REQUIRED_FOR_SUBMISSION,
   canTransitionExpert,
   EXPERT_TRANSITIONS,
   isEligibleForMatching,
@@ -132,6 +133,8 @@ describe("submission completeness", () => {
     timezone: "Asia/Kolkata",
     yearsExperience: 7,
     professionalSummary: "Apex and LWC.",
+    phone: "+91 98765 43210",
+    trailheadUrl: "https://www.salesforce.com/trailblazer/example",
     termsAcceptedAt: new Date(),
     confidentialityAcceptedAt: new Date(),
   };
@@ -142,7 +145,7 @@ describe("submission completeness", () => {
 
   it("reports every missing field at once, not just the first", () => {
     // One round trip should tell the applicant everything still outstanding.
-    expect(missingForSubmission({})).toHaveLength(6);
+    expect(missingForSubmission({})).toHaveLength(REQUIRED_FOR_SUBMISSION.length);
   });
 
   it("treats an empty string as missing", () => {

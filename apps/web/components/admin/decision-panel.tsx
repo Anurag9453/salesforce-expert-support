@@ -58,6 +58,7 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
   const router = useRouter();
   const [active, setActive] = useState<Action | null>(null);
   const [notes, setNotes] = useState("");
+  const [verified, setVerified] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +117,31 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
         </div>
       ) : (
         <div className="space-y-3 rounded-md border border-border bg-surface-sunken p-4">
+          {/*
+            Approval asks what was actually checked, before it asks why.
+
+            Empty is a legitimate answer — plenty of capable Salesforce people
+            hold no certifications, and demanding one would push reviewers into
+            inventing them. What this refuses to allow is approving *without
+            having looked*, which is the habit that lets an unvetted person
+            through. It is stored apart from the applicant's own claims.
+          */}
+          {active === "approve" && (
+            <Field
+              id="verifiedCertifications"
+              label="What did you verify on their Trailhead profile?"
+              hint="Comma separated. Leave empty if they hold none — but open the profile first."
+            >
+              <Textarea
+                id="verifiedCertifications"
+                rows={2}
+                value={verified}
+                onChange={(event) => setVerified(event.target.value)}
+                placeholder="Certified Administrator, Platform Developer I"
+              />
+            </Field>
+          )}
+
           <Field id="notes" label={ACTIONS[active].prompt} required>
             <Textarea
               id="notes"
@@ -129,7 +155,20 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
             <Button
               variant={ACTIONS[active].variant}
               disabled={pending || notes.trim().length === 0}
-              onClick={() => void send({ decision: active, notes } as AdminExpertDecision)}
+              onClick={() =>
+                void send({
+                  decision: active,
+                  notes,
+                  ...(active === "approve"
+                    ? {
+                        verifiedCertifications: verified
+                          .split(",")
+                          .map((value) => value.trim())
+                          .filter(Boolean),
+                      }
+                    : {}),
+                } as AdminExpertDecision)
+              }
             >
               {pending ? "Recording…" : `Confirm ${ACTIONS[active].label.toLowerCase()}`}
             </Button>

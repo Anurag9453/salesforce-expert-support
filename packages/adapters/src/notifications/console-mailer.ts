@@ -30,10 +30,23 @@ export class ConsoleMailer implements Mailer {
 
   async send(message: EmailMessage): Promise<void> {
     this.sent.push(message);
+    /*
+      The body is logged, not just the metadata.
+
+      This mailer never sends anything, so the terminal is the only place the
+      email exists — and an email you cannot read is an email you cannot act on.
+      Without this, turning on email verification silently made it impossible to
+      register at all: the link was generated, addressed, and thrown away.
+
+      It follows that this must never be the production mailer. Verification
+      links and password resets are bearer tokens, and a real deployment putting
+      them in its logs has published them to everyone with log access.
+    */
     this.logger.info("email (not sent — console mailer)", {
       to: message.to,
       subject: message.subject,
       idempotencyKey: message.idempotencyKey,
+      body: message.text,
     });
   }
 }

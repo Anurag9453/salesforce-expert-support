@@ -465,15 +465,90 @@ export class PrismaAttachmentRepository implements AttachmentRepository {
 export class PrismaSupportLeadRepository implements SupportLeadRepository {
   constructor(private readonly db: Db) {}
 
-  async create(input: { customerId: string; summary: string }): Promise<SupportLeadRecord> {
-    const row = await this.db.supportLead.create({
-      data: { customerId: input.customerId, summary: input.summary },
-    });
-    return {
-      id: row.id,
-      customerId: row.customerId,
-      summary: row.summary,
-      createdAt: row.createdAt,
-    };
+  async create(input: {
+    customerId: string | null;
+    name: string;
+    email: string;
+    phone: string;
+    summary: string;
+    durationMinutes: number | null;
+    quotedPriceCents: number | null;
+    currency: string | null;
+  }): Promise<SupportLeadRecord> {
+    return toLead(await this.db.supportLead.create({ data: input }));
   }
+
+  async findById(id: string): Promise<SupportLeadRecord | null> {
+    const row = await this.db.supportLead.findUnique({ where: { id } });
+    return row ? toLead(row) : null;
+  }
+
+  async recordCrmOutcome(input: {
+    id: string;
+    crmRef: string | null;
+    syncedAt: Date | null;
+    error: string | null;
+  }): Promise<void> {
+    await this.db.supportLead.update({
+      where: { id: input.id },
+      data: {
+        crmRef: input.crmRef,
+        crmSyncedAt: input.syncedAt,
+        crmLastError: input.error,
+        // Counts every attempt, successful or not. A lead that took six tries to
+        // land is worth being able to see afterwards.
+        crmAttempts: { increment: 1 },
+      },
+    });
+  }
+
+  async listAwaitingCrm(params: {
+    limit: number;
+    maxAttempts: number;
+  }): Promise<readonly SupportLeadRecord[]> {
+    const rows = await this.db.supportLead.findMany({
+      where: { crmSyncedAt: null, crmAttempts: { lt: params.maxAttempts } },
+      // Oldest first: the enquiry that has been waiting longest is the one most
+      // at risk of going cold.
+      orderBy: { createdAt: "asc" },
+      take: params.limit,
+    });
+    return rows.map(toLead);
+  }
+}
+
+type LeadRow = {
+  id: string;
+  customerId: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  summary: string;
+  durationMinutes: number | null;
+  quotedPriceCents: number | null;
+  currency: string | null;
+  crmRef: string | null;
+  crmSyncedAt: Date | null;
+  crmAttempts: number;
+  crmLastError: string | null;
+  createdAt: Date;
+};
+
+function toLead(row: LeadRow): SupportLeadRecord {
+  return {
+    id: row.id,
+    customerId: row.customerId,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    summary: row.summary,
+    durationMinutes: row.durationMinutes,
+    quotedPriceCents: row.quotedPriceCents,
+    currency: row.currency,
+    crmRef: row.crmRef,
+    crmSyncedAt: row.crmSyncedAt,
+    crmAttempts: row.crmAttempts,
+    crmLastError: row.crmLastError,
+    createdAt: row.createdAt,
+  };
 }

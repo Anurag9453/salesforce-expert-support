@@ -11,6 +11,9 @@ import {
   PrismaSupportRequestRepository,
   PrismaTaxonomyRepository,
   RulesProblemClassifier,
+  MockCrmGateway,
+  PrismaSupportLeadRepository,
+  SalesforceCrmGateway,
 } from "@sfx/adapters";
 import { PrismaUnitOfWork } from "@sfx/adapters";
 import { parseServerEnv, type ServerEnv } from "@sfx/contracts";
@@ -29,6 +32,7 @@ import {
   type ProblemClassifier,
   type SupportRequestRepository,
   type TaxonomyRepository,
+  SupportLeadService,
 } from "@sfx/domain";
 import { QUEUES } from "./queues.js";
 
@@ -53,6 +57,8 @@ export interface WorkerContainer {
   readonly availability: ExpertAvailabilityService;
   /** Stages 4 and 5 of matching. The worker is the only process that dispatches (D2). */
   readonly matching: MatchingService;
+  /** Pushes captured enquiries into the CRM. The current product's only job. */
+  readonly supportLeads: SupportLeadService;
 }
 
 /**
@@ -156,6 +162,22 @@ export async function buildWorkerContainer(scheduler: JobScheduler): Promise<Wor
       logger,
       heartbeatStaleAfterSeconds: env.HEARTBEAT_STALE_AFTER_SECONDS,
       heartbeatIntervalSeconds: env.HEARTBEAT_INTERVAL_SECONDS,
+    }),
+    supportLeads: new SupportLeadService({
+      leads: new PrismaSupportLeadRepository(prisma),
+      scheduler,
+      clock: systemClock,
+      logger,
+      crmSyncQueue: QUEUES.CRM_SYNC,
+      crm:
+        env.CRM_PROVIDER === "salesforce"
+          ? new SalesforceCrmGateway({
+              instanceUrl: env.SALESFORCE_INSTANCE_URL!,
+              clientId: env.SALESFORCE_CLIENT_ID!,
+              clientSecret: env.SALESFORCE_CLIENT_SECRET!,
+              logger,
+            })
+          : new MockCrmGateway(logger),
     }),
     matching: new MatchingService({
       requests,

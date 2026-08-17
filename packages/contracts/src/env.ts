@@ -167,6 +167,23 @@ const baseServerEnv = z.object({
    * `exclusive` keeps the existing regression suites meaningful; flipping the
    * default is a one-line change once the new flow has been exercised.
    */
+  /**
+   * How much of the platform actually runs.
+   *
+   * `lead_capture` is the current product: an anonymous form, a durable lead,
+   * and a human following up. Classification, matching, dispatch and payment are
+   * not disabled by commenting them out — they simply are never invoked, so the
+   * code stays live, tested and one flag away from returning.
+   */
+  INTAKE_MODE: z.enum(["lead_capture", "full"]).default("lead_capture"),
+
+  CRM_PROVIDER: z.enum(["salesforce", "mock"]).default("mock"),
+  SALESFORCE_INSTANCE_URL: z.string().url().optional(),
+  SALESFORCE_CLIENT_ID: z.string().min(1).optional(),
+  SALESFORCE_CLIENT_SECRET: z.string().min(1).optional(),
+  /** Optional External Id text field on Lead; turns the push into an upsert. */
+  SALESFORCE_LEAD_EXTERNAL_ID_FIELD: z.string().min(1).optional(),
+
   DISPATCH_MODE: z.enum(["exclusive", "interest_pool"]).default("exclusive"),
   /** How many experts a broadcast reaches. Beyond this, ranking has decided. */
   INTEREST_BROADCAST_SIZE: z.coerce.number().int().min(1).max(50).default(8),
@@ -233,6 +250,23 @@ export const serverEnvSchema = pairedCredentials(
     take authorizations, and then be unable to verify a single confirmation —
     which looks like working software right up until reconciliation.
   */
+  if (value.CRM_PROVIDER === "salesforce") {
+    for (const key of [
+      "SALESFORCE_INSTANCE_URL",
+      "SALESFORCE_CLIENT_ID",
+      "SALESFORCE_CLIENT_SECRET",
+    ] as const) {
+      if (!value[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message:
+            "is required when CRM_PROVIDER=salesforce — without it every enquiry stays stuck in the retry queue, which looks like nothing is wrong until someone checks.",
+        });
+      }
+    }
+  }
+
   if (value.PAYMENT_PROVIDER === "stripe") {
     if (!value.STRIPE_SECRET_KEY) {
       ctx.addIssue({

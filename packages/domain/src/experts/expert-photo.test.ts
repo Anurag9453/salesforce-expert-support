@@ -126,6 +126,7 @@ function expert(profileId = "exp_1"): Actor {
     name: "E",
     roles: ["CUSTOMER", "EXPERT"],
     status: "ACTIVE",
+    emailVerified: true,
     expert: { profileId, status: "APPROVED" },
     customerProfileId: `cust_${profileId}`,
   } as unknown as Actor;
@@ -138,6 +139,7 @@ function admin(): Actor {
     name: "A",
     roles: ["CUSTOMER", "ADMIN"],
     status: "ACTIVE",
+    emailVerified: true,
     customerProfileId: "cust_admin",
   } as unknown as Actor;
 }
@@ -149,6 +151,7 @@ function customer(): Actor {
     name: "C",
     roles: ["CUSTOMER"],
     status: "ACTIVE",
+    emailVerified: true,
     customerProfileId: "cust_only",
   } as unknown as Actor;
 }

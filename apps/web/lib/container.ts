@@ -23,6 +23,10 @@ import {
   PrismaTaxonomyRepository,
   PrismaUnitOfWork,
   PrismaWebhookEventRepository,
+  PrismaPaymentRepository,
+  ConsoleMailer,
+  MockCrmGateway,
+  SalesforceCrmGateway,
   RulesProblemClassifier,
   SendOnlyBoss,
   StripePaymentGateway,
@@ -32,6 +36,9 @@ import type { PrismaClient } from "@sfx/db";
 import {
   AccountService,
   DEFAULT_MATCHING_THRESHOLDS,
+  CheckoutService,
+  type CrmGateway,
+  type Mailer,
   DispatchNotifier,
   ExpertAdminService,
   ExpertApplicationService,
@@ -55,6 +62,7 @@ import {
   type PricingRepository,
   type ProblemClassifier,
   type RateLimiter,
+  type SupportRequestRecord,
   type SupportRequestRepository,
   type TaxonomyRepository,
   type UnitOfWork,
@@ -76,7 +84,14 @@ export interface Container {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly uow: UnitOfWork;
+  /**
+   * Outbound email. `ConsoleMailer` prints rather than sends, so a production
+   * launch needs a real provider here before email verification means anything
+   * to anyone outside the team.
+   */
+  readonly mailer: Mailer;
   readonly paymentGateway: PaymentGateway;
+  readonly checkout: CheckoutService;
   readonly payoutProvider: PayoutProvider;
   readonly rateLimiter: RateLimiter;
   readonly storage: LocalFileStorage;
@@ -125,6 +140,25 @@ function build(): Container {
   });
   const clock = systemClock;
   const uow = new PrismaUnitOfWork(prisma);
+
+  /**
+   * `mock` is the default so that development, tests and CI never write into a
+   * real org. A test suite pointed at Salesforce is one that eventually creates
+   * a thousand Leads somebody has to delete.
+   */
+  const crmGateway: CrmGateway =
+    env.CRM_PROVIDER === "salesforce"
+      ? new SalesforceCrmGateway({
+          // Validated as a set in `env.ts`, so these are present together or the
+          // process refused to start.
+          instanceUrl: env.SALESFORCE_INSTANCE_URL!,
+          clientId: env.SALESFORCE_CLIENT_ID!,
+          clientSecret: env.SALESFORCE_CLIENT_SECRET!,
+          logger,
+        })
+      : new MockCrmGateway(logger);
+
+  const mailer: Mailer = new ConsoleMailer(logger);
 
   const paymentGateway: PaymentGateway = (() => {
     switch (env.PAYMENT_PROVIDER) {
@@ -235,11 +269,22 @@ function build(): Container {
       ? new PostgresRealtimeHub(env.DIRECT_DATABASE_URL ?? env.DATABASE_URL, logger)
       : null;
 
+  // One notifier, shared. Checkout needs to nudge the customer's screen the
+  // moment payment lands, and a second instance would be a second set of
+  // swallowed failures to reason about.
+  const dispatchNotifier = new DispatchNotifier({
+    realtime,
+    clock,
+    logger,
+    notifications: notificationService,
+  });
+
   return {
     prisma,
     clock,
     logger,
     uow,
+    mailer,
     paymentGateway,
     payoutProvider,
     rateLimiter,
@@ -279,12 +324,7 @@ function build(): Container {
       logger,
       interest: interestDispatch,
       dispatchMode: env.DISPATCH_MODE,
-      notifier: new DispatchNotifier({
-        realtime,
-        clock,
-        logger,
-        notifications: notificationService,
-      }),
+      notifier: dispatchNotifier,
       queues: {
         dispatchNextOffer: QUEUES.DISPATCH_NEXT_OFFER,
         offerTimeout: QUEUES.OFFER_TIMEOUT,
@@ -315,7 +355,27 @@ function build(): Container {
       events: new PrismaWebhookEventRepository(prisma),
       logger,
     }),
-    supportLeads: new SupportLeadService({ leads: new PrismaSupportLeadRepository(prisma) }),
+    checkout: new CheckoutService({
+      requests,
+      payments: new PrismaPaymentRepository(prisma),
+      gateway: paymentGateway,
+      auditLog: uow.auditLog,
+      clock,
+      logger,
+      // The customer's screen is waiting on this — they are looking at a pay
+      // button and expecting a meeting link to replace it.
+      onReady: async (request: SupportRequestRecord) => {
+        await dispatchNotifier.requestStateChanged(request.id, request.customerId);
+      },
+    }),
+    supportLeads: new SupportLeadService({
+      leads: new PrismaSupportLeadRepository(prisma),
+      scheduler,
+      clock,
+      logger,
+      crmSyncQueue: QUEUES.CRM_SYNC,
+      crm: crmGateway,
+    }),
     supportRequests: new SupportRequestService({
       requests,
       taxonomy,
@@ -326,6 +386,9 @@ function build(): Container {
       clock,
       matchingWindowMinutes: 15,
       classifyQueue: QUEUES.CLASSIFY_REQUEST,
+      // Decides whether payment is authorized before matching (D1) or after both
+      // sides have agreed. See `RequestServiceDeps.dispatchMode`.
+      dispatchMode: env.DISPATCH_MODE,
       logger,
     }),
     async buildClassifier() {

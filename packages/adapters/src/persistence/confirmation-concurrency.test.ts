@@ -278,6 +278,91 @@ describeWithDb("one_confirming_per_request", () => {
     ).not.toBeNull();
   });
 
+  /**
+   * The mirror invariant: one expert, two requests.
+   *
+   * Found by accident while testing the pay flow. A test selected a candidate
+   * who was already confirming a *different* request, and it went through —
+   * both attempts sat in CONFIRMING, and because the expert's workspace looks up
+   * one pending confirmation, the second was invisible to them and expired while
+   * a customer watched a countdown that could never be answered.
+   *
+   * Raising a hand on several requests is intended; being *asked to confirm*
+   * several is not. Exclusivity has to begin the moment somebody is chosen.
+   */
+  it("refuses to ask one expert to confirm two requests at once", async () => {
+    await resetShortlist();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 120_000);
+
+    // A second request, shortlisting the *same* expert as the first.
+    const tier = await prisma.pricingTier.findFirst({ where: { isActive: true } });
+    const secondRequestId = `freq2-${STAMP}`;
+    const secondAttemptId = `fatt2-${STAMP}`;
+    await prisma.supportRequest.create({
+      data: {
+        id: secondRequestId,
+        customerId: ids.customer,
+        title: "A second customer, same expert",
+        description: "Both shortlisted the same person.",
+        state: "SEARCHING",
+        matchDeadlineAt: new Date(Date.now() + 15 * 60_000),
+        pricingTierId: tier!.id,
+        quotedPriceCents: tier!.priceCents,
+        quotedPlatformFeeCents: 0,
+        quotedExpertPayoutCents: tier!.priceCents,
+        matchingRuns: {
+          create: {
+            id: `frun2-${STAMP}`,
+            roundNumber: 1,
+            relaxationLevel: 0,
+            weightsSnapshot: {},
+            thresholdsSnapshot: {},
+            candidatePoolSize: 1,
+            attempts: {
+              create: {
+                id: secondAttemptId,
+                supportRequestId: secondRequestId,
+                expertProfileId: ids.expertA,
+                rank: 1,
+                status: "SHORTLISTED",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    try {
+      expect(
+        await repo.startConfirmation({
+          attemptId: ids.attemptA,
+          expertProfileId: ids.expertA,
+          expiresAt,
+          now,
+        }),
+      ).not.toBeNull();
+
+      // The same expert, a different request. Before `one_confirming_per_expert`
+      // this succeeded and produced two live confirmations for one person.
+      expect(
+        await repo.startConfirmation({
+          attemptId: secondAttemptId,
+          expertProfileId: ids.expertA,
+          expiresAt,
+          now,
+        }),
+      ).toBeNull();
+
+      const confirming = await prisma.matchingAttempt.count({
+        where: { expertProfileId: ids.expertA, status: "CONFIRMING" },
+      });
+      expect(confirming).toBe(1);
+    } finally {
+      await prisma.supportRequest.deleteMany({ where: { id: secondRequestId } });
+    }
+  });
+
   it("holds under a wider stampede", async () => {
     await resetShortlist();
     const now = new Date();

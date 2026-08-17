@@ -834,14 +834,18 @@ export class PrismaMatchingRepository implements MatchingRepository {
     expiresAt: Date;
     now: Date;
   }): Promise<MatchingAttemptRecord | null> {
-    // Two guards, because they catch different things.
+    // Three guards, because they catch three different things.
     //
     // SHORTLISTED stops this same attempt being selected twice. It does NOT stop
     // two *different* attempts on one request being selected concurrently — each
-    // row's own precondition holds — so `one_confirming_per_request` is the one
-    // that actually enforces "one expert at a time". A unique violation here is
-    // the loser of that race and means exactly what a zero-row update means:
-    // somebody else got there first.
+    // row's own precondition holds — so `one_confirming_per_request` enforces
+    // "one expert per request". And neither of those stops two *different
+    // requests* both selecting the same expert, which is what
+    // `one_confirming_per_expert` is for: interest is non-exclusive right up
+    // until someone is chosen, and exclusivity has to begin somewhere.
+    //
+    // A unique violation from either index means the same thing a zero-row
+    // update means: somebody else got there first.
     const result = await this.db.matchingAttempt
       .updateMany({
         where: { id: params.attemptId, status: "SHORTLISTED" },
@@ -853,7 +857,15 @@ export class PrismaMatchingRepository implements MatchingRepository {
         },
       })
       .catch((error: unknown) => {
-        if (isUniqueViolation(error, "one_confirming_per_request", "supportRequestId")) {
+        if (
+          isUniqueViolation(
+            error,
+            "one_confirming_per_request",
+            "one_confirming_per_expert",
+            "supportRequestId",
+            "expertProfileId",
+          )
+        ) {
           return { count: 0 };
         }
         throw error;

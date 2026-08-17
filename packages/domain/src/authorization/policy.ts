@@ -45,6 +45,13 @@ export const PERMISSIONS = [
   // Offers, from the expert side
   "offer:read_own",
   "offer:respond",
+  // The session itself. Both sides hold the same three, because both sides do
+  // the same three things: look at it, join it, end it. *Which* session is a
+  // question of ownership, not of role, and the service answers it from the
+  // session row — the same shape as offers.
+  "session:read_own",
+  "session:join",
+  "session:end",
   // Administration
   "admin:read_experts",
   "admin:read_requests",
@@ -107,6 +114,15 @@ export function can(actor: MaybeActor, permission: Permission): boolean {
     case "support_request:read_own":
     case "support_request:cancel_own":
     case "attachment:upload":
+      return true;
+
+    // A session has exactly two participants and either may be on either side of
+    // the marketplace, so a role check here would be wrong in one direction or
+    // the other. The gate that matters — "is this actor one of the two people in
+    // this session" — needs the row, and lives in `SessionService`.
+    case "session:read_own":
+    case "session:join":
+    case "session:end":
       return true;
 
     case "expert_application:start":

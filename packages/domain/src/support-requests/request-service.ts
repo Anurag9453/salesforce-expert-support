@@ -68,6 +68,21 @@ export interface RequestServiceDeps {
   readonly clock: Clock;
   readonly matchingWindowMinutes: number;
   readonly classifyQueue: string;
+  /**
+   * Decides *when* payment happens, because the two dispatch models want
+   * different answers.
+   *
+   * `exclusive` keeps D1: authorize before matching, so the one expert who is
+   * handed an exclusive offer is never left waiting on a card.
+   *
+   * `interest_pool` cannot honestly do that. The customer has not chosen anyone
+   * yet, and asking them to authorize a payment before they have seen who is
+   * available inverts the whole point of showing them three people. The state
+   * machine already anticipates this — the shortlist path routes ACCEPTED →
+   * PAYMENT_PENDING precisely so nothing is charged until both sides have said
+   * yes.
+   */
+  readonly dispatchMode?: "exclusive" | "interest_pool";
   /** Optional. Only used to record the first of requirement 16's timing points. */
   readonly logger?: Logger;
 }
@@ -130,16 +145,28 @@ export class SupportRequestService {
       ? await this.deps.taxonomy.findCategoryBySlug(input.categorySlug)
       : null;
 
-    // ── D1: authorize payment before matching ───────────────────────────────
-    const authorization = await this.deps.payments.authorize({
-      idempotencyKey: `req:${customerId}:${now.getTime()}`,
-      amountMinor: tier.priceCents,
-      currency: tier.currency,
-      customerRef: null,
-      description: `${tier.durationMinutes}-minute Salesforce expert session`,
-      metadata: { customerId },
-    });
-    if (authorization.status === "failed") {
+    // ── D1: authorize payment before matching — exclusive dispatch only ──────
+    //
+    // Under `interest_pool` this is deliberately skipped. See `dispatchMode`:
+    // the customer has not picked anybody yet, so there is nothing to hold money
+    // against, and the shortlist path charges after both sides agree instead.
+    //
+    // The cost of skipping it is real and worth naming: the expert who confirms
+    // is no longer protected by a hold that already succeeded. Closing that gap
+    // means validating a payment method at intake without charging it, which
+    // needs a payment provider — so it belongs to the payments phase, not here.
+    const authorization =
+      this.deps.dispatchMode === "interest_pool"
+        ? null
+        : await this.deps.payments.authorize({
+            idempotencyKey: `req:${customerId}:${now.getTime()}`,
+            amountMinor: tier.priceCents,
+            currency: tier.currency,
+            customerRef: null,
+            description: `${tier.durationMinutes}-minute Salesforce expert session`,
+            metadata: { customerId },
+          });
+    if (authorization?.status === "failed") {
       throw new ValidationError(
         authorization.failureMessage ?? "We could not authorize your payment method.",
         { payment: [authorization.failureCode ?? "authorization_failed"] },
@@ -156,7 +183,7 @@ export class SupportRequestService {
       quotedPlatformFeeCents: platformTotal.amountMinor,
       quotedExpertPayoutCents: expertPayout.amountMinor,
       matchDeadlineAt: new Date(now.getTime() + this.deps.matchingWindowMinutes * 60_000),
-      paymentAuthorizationRef: authorization.providerRef,
+      paymentAuthorizationRef: authorization?.providerRef ?? null,
       primaryCategoryId: category?.id ?? null,
       skillIds: selectedSkills.map((skill) => skill.id),
     });

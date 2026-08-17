@@ -22,6 +22,7 @@ const actor: Actor = {
   email: "c@example.com",
   roles: ["CUSTOMER"],
   status: "ACTIVE",
+  emailVerified: true,
   customerProfileId: "cust_1",
 };
 

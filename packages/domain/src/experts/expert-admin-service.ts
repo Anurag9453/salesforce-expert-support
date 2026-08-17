@@ -71,13 +71,31 @@ export class ExpertAdminService {
     return this.applyDecision(actor, applicationId, "UNDER_REVIEW", null, "expert.claimed");
   }
 
+  /**
+   * Approve an applicant, recording what was actually checked.
+   *
+   * `verifiedCertifications` is required as an argument and permitted to be
+   * empty. Plenty of genuinely capable Salesforce people hold no certifications,
+   * so demanding at least one would push reviewers into inventing them — but
+   * *answering the question* is not optional, because approving without saying
+   * what you verified is precisely the habit this exists to interrupt.
+   *
+   * Stored apart from the applicant's own `certifications`. One column is
+   * evidence and the other is a claim, and a reviewer who cannot tell them apart
+   * later has no way to know which experts were really checked.
+   */
   async approve(
     actor: Actor,
     applicationId: string,
     notes: string,
+    verifiedCertifications: readonly string[] = [],
   ): Promise<ExpertApplicationRecord> {
     authorize(actor, "admin:review_expert");
-    return this.applyDecision(actor, applicationId, "APPROVED", notes, "expert.approved");
+    return this.applyDecision(actor, applicationId, "APPROVED", notes, "expert.approved", {
+      verifiedCertifications,
+      certificationsVerifiedAt: this.clock.now(),
+      certificationsVerifiedBy: actor.userId,
+    });
   }
 
   async reject(
@@ -118,6 +136,11 @@ export class ExpertAdminService {
     target: ExpertStatus,
     notes: string | null,
     action: string,
+    verification?: {
+      readonly verifiedCertifications: readonly string[];
+      readonly certificationsVerifiedAt: Date;
+      readonly certificationsVerifiedBy: string;
+    },
   ): Promise<ExpertApplicationRecord> {
     const now = this.clock.now();
 
@@ -142,6 +165,7 @@ export class ExpertAdminService {
         now,
         reviewedByUserId: actor.userId,
         reviewNotes: notes,
+        ...(verification ?? {}),
       });
 
       await repos.auditLog.record({
@@ -160,6 +184,12 @@ export class ExpertAdminService {
           reviewedByUserId: actor.userId,
           reviewedByEmail: actor.email,
           notes,
+          // Part of the audit trail on purpose: "which experts did we actually
+          // check, and who checked them" is a question that gets asked after
+          // something has gone wrong, when nobody remembers.
+          ...(verification
+            ? { verifiedCertifications: [...verification.verifiedCertifications] }
+            : {}),
         },
       });
 

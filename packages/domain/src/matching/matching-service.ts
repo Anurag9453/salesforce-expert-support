@@ -660,7 +660,14 @@ export class MatchingService {
       reason: `Interest window closed with ${String(outcome.candidates)} candidate(s).`,
       metadata: { candidates: outcome.candidates },
     });
-    await this.notify?.requestStateChanged(request.id, request.customerId);
+    // Durable, not only a doorbell: this is the step that asks the customer to
+    // choose, and they may well not be looking at the tab when it lands.
+    await this.notify?.shortlistReady({
+      supportRequestId: request.id,
+      customerId: request.customerId,
+      customerProfileId: request.customerId,
+      candidates: outcome.candidates,
+    });
 
     return { action: "OFFERED", reason: `shortlisted ${String(outcome.candidates)}` };
   }
@@ -701,12 +708,12 @@ export class MatchingService {
       metadata: { attemptId: chosen.id },
     });
 
-    // The chosen expert needs to know now — they have two minutes.
-    await this.notify?.offerOpened({
+    // The chosen expert needs to know now — they have two minutes, and a
+    // doorbell alone only reaches a tab that happens to be open.
+    await this.notify?.candidateSelected({
       expertProfileId: chosen.expertProfileId,
       supportRequestId: request.id,
       customerId: request.customerId,
-      offeredAt: this.deps.clock.now(),
     });
 
     return chosen;
@@ -766,7 +773,24 @@ export class MatchingService {
       now,
     });
     await this.deps.matching.completeRun({ matchingRunId: attempt.matchingRunId, now });
-    await this.notify?.requestStateChanged(request.id, request.customerId);
+
+    // Both sides have now said yes, so the customer pays — and only then does a
+    // meeting link exist. This is why the shortlist path was given
+    // PAYMENT_PENDING in the first place: under the exclusive loop the card was
+    // authorized before matching, so ACCEPTED could go straight to READY. Here
+    // there is nothing held, because until this moment the customer had not
+    // chosen anyone to hold it for.
+    const accepted = await this.requireRequest(request.id);
+    await this.transition(accepted, "PAYMENT_PENDING", {
+      actorType: "SYSTEM",
+      reason: "Expert confirmed; payment is now due.",
+      metadata: { attemptId: attempt.id },
+    });
+    await this.notify?.paymentDue({
+      supportRequestId: request.id,
+      customerId: request.customerId,
+      customerProfileId: request.customerId,
+    });
 
     this.deps.logger.info("selection confirmed", {
       supportRequestId: request.id,

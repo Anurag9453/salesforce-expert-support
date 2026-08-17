@@ -132,6 +132,29 @@ export const attemptStatusSchema = z.enum([
 ]);
 export type AttemptStatus = z.infer<typeof attemptStatusSchema>;
 
+/**
+ * The session's own lifecycle, distinct from the request's.
+ *
+ * A request reaches READY and stops being interesting; the session then has its
+ * own arc that outlives it. ABANDONED is deliberately one state covering two
+ * causes — nobody joined, or it ran on and was closed — because the difference
+ * matters to *billing*, not to the state, and is recorded as a reason.
+ */
+export const sessionStateSchema = z.enum([
+  "SCHEDULED",
+  "READY",
+  "ACTIVE",
+  "COMPLETED",
+  "ABANDONED",
+]);
+export type SessionState = z.infer<typeof sessionStateSchema>;
+
+export const participantEventTypeSchema = z.enum(["JOINED", "LEFT", "RECONNECTED"]);
+export type ParticipantEventType = z.infer<typeof participantEventTypeSchema>;
+
+export const resolutionStatusSchema = z.enum(["RESOLVED", "PARTIALLY_RESOLVED", "NOT_RESOLVED"]);
+export type ResolutionStatus = z.infer<typeof resolutionStatusSchema>;
+
 export const attemptOriginSchema = z.enum(["ALGORITHMIC", "ADMIN_ASSIGN", "ADMIN_FORCE_ASSIGN"]);
 export type AttemptOrigin = z.infer<typeof attemptOriginSchema>;
 

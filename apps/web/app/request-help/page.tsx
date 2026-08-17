@@ -5,8 +5,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { PricingTierView, TaxonomyCategory } from "@sfx/contracts";
 import { Alert } from "@/components/ui";
+import { LeadWizard } from "@/components/request/lead-wizard";
 import { RequestWizard } from "@/components/request/request-wizard";
 import { getContainer } from "@/lib/container";
+import { serverEnv } from "@/lib/env";
 import { getActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Get expert help" };
@@ -30,12 +32,15 @@ export const dynamic = "force-dynamic";
 export default async function RequestHelpPage() {
   const actor = await getActor();
   const signedIn = actor !== ANONYMOUS;
+  const leadCapture = serverEnv().INTAKE_MODE === "lead_capture";
 
   const { supportRequests, taxonomy, pricing } = getContainer();
 
   // One live request at a time — two would compete for the same experts and hold
-  // two authorizations on the same card. Only checkable when we know who they are.
-  if (signedIn) {
+  // two authorizations on the same card. Only checkable when we know who they
+  // are, and only meaningful when requests are dispatched at all: under lead
+  // capture there is no live request to collide with.
+  if (signedIn && !leadCapture) {
     const active = await supportRequests.findActive(actor);
     if (active) redirect(`/request/${active.id}`);
   }
@@ -103,7 +108,22 @@ export default async function RequestHelpPage() {
         </p>
 
         <div className="mt-8">
-          <RequestWizard categories={grouped} tiers={tierViews} signedIn={signedIn} />
+          {/*
+            Two intakes, one flag. Lead capture is the current product — three
+            steps, no account, a human follows up. The full wizard is unchanged
+            underneath and returns whole when INTAKE_MODE=full, which is why the
+            matching and payment code was flagged off rather than deleted.
+          */}
+          {leadCapture ? (
+            <LeadWizard tiers={tierViews} />
+          ) : (
+            <RequestWizard
+              categories={grouped}
+              tiers={tierViews}
+              signedIn={signedIn}
+              payBeforeMatch={serverEnv().DISPATCH_MODE !== "interest_pool"}
+            />
+          )}
         </div>
       </main>
     </div>

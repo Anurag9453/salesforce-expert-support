@@ -116,6 +116,7 @@ function expertActor(profileId: string): Actor {
     email: `${profileId}@example.com`,
     roles: ["CUSTOMER", "EXPERT"],
     status: "ACTIVE",
+    emailVerified: true,
     expert: { profileId, status: "APPROVED" },
   };
 }

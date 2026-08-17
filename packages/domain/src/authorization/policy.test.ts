@@ -10,6 +10,7 @@ function actor(overrides: Partial<Actor> = {}): Actor {
     email: "a@example.com",
     roles: ["CUSTOMER"],
     status: "ACTIVE",
+    emailVerified: true,
     ...overrides,
   };
 }

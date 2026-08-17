@@ -70,6 +70,9 @@ const NARRATIVE: Record<
 
 export function RequestStatus({ initial }: { initial: RequestView }) {
   const router = useRouter();
+  // The last state the *server* rendered for. A change means the page's shape
+  // may be wrong, not just its wording — see `reconcile`.
+  const renderedState = useRef(initial.state);
   const [request, setRequest] = useState(initial);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +88,18 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
       const next = body.data as RequestView;
       setRequest(next);
 
+      // A state change can mean a different *component* belongs here, not just a
+      // different badge. The server decides between the status panel and the
+      // candidate cards, and it decided once, at render time — so a request that
+      // reached SHORTLISTED while this page was open showed the customer a
+      // "shortlisted" badge above the panel that says we are still looking, with
+      // their three experts nowhere on screen. Re-running the server component
+      // is what puts the choice back in front of them.
+      if (next.state !== renderedState.current) {
+        renderedState.current = next.state;
+        router.refresh();
+      }
+
       // Requirement 16, point 8 — the only place that knows when the customer
       // could actually *see* the answer. Reported once per state, so a
       // reconnect-driven refetch does not inflate the sample.
@@ -99,7 +114,7 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
     } catch {
       // The stream or the fallback poll will try again.
     }
-  }, [initial.id]);
+  }, [initial.id, router]);
 
   const realtimeStatus = useRealtime(reconcile, { enabled: live });
 

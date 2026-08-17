@@ -31,8 +31,15 @@ export interface ExpertApplicationRecord {
   readonly timezone: string | null;
   readonly yearsExperience: number | null;
   readonly professionalSummary: string | null;
+  readonly phone: string | null;
+  readonly trailheadUrl: string | null;
   readonly languages: readonly string[];
+  /** What the applicant claims. */
   readonly certifications: readonly string[];
+  /** What a reviewer confirmed. Never merge these two. */
+  readonly verifiedCertifications: readonly string[];
+  readonly certificationsVerifiedAt: Date | null;
+  readonly certificationsVerifiedBy: string | null;
   readonly linkedinUrl: string | null;
   readonly githubUrl: string | null;
   readonly employmentStatus: string | null;
@@ -48,6 +55,8 @@ export interface ExpertApplicationDraft {
   readonly timezone?: string | null;
   readonly yearsExperience?: number | null;
   readonly professionalSummary?: string | null;
+  readonly phone?: string | null;
+  readonly trailheadUrl?: string | null;
   readonly languages?: readonly string[];
   readonly certifications?: readonly string[];
   readonly linkedinUrl?: string | null;
@@ -117,6 +126,10 @@ export interface ExpertApplicationRepository {
     readonly reviewedByUserId?: string | null;
     readonly reviewNotes?: string | null;
     readonly submittedAt?: Date | null;
+    /** Written only on approval — what the reviewer confirmed, and who. */
+    readonly verifiedCertifications?: readonly string[];
+    readonly certificationsVerifiedAt?: Date;
+    readonly certificationsVerifiedBy?: string;
   }): Promise<ExpertApplicationRecord>;
   listByStatus(params: {
     readonly statuses: readonly ExpertStatus[];

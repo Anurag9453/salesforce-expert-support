@@ -25,3 +25,7 @@ export * from "./matching/index.js";
 export * from "./notifications/notification-service.js";
 export * from "./billing/expert-fees.js";
 export * from "./payments/webhook-service.js";
+export * from "./payments/checkout-service.js";
+export * from "./ports/crm.js";
+export * from "./ports/payment-repository.js";
+export * from "./sessions/session-lifecycle.js";

@@ -13,6 +13,15 @@ export interface Actor {
   readonly roles: readonly UserRole[];
   readonly status: "ACTIVE" | "SUSPENDED" | "DELETED";
   /**
+   * Whether the address on the account has been confirmed.
+   *
+   * Carried on the actor rather than checked at the auth layer because the rule
+   * it supports is a *product* rule, not a login one: someone may browse and ask
+   * for help unverified, but may not offer themselves as an expert, because the
+   * platform would then be sending a stranger it cannot reach to a customer.
+   */
+  readonly emailVerified: boolean;
+  /**
    * Every account has one — it is bootstrapped on the first authenticated
    * request. Optional in the type only because the session builder constructs
    * the Actor before it can guarantee the row exists.

@@ -24,6 +24,7 @@ import {
   type MatchingDeadlinePayload,
   type OfferTimeoutPayload,
 } from "./jobs/dispatch.js";
+import { handleCrmSync, retryUnsyncedLeads, type CrmSyncPayload } from "./jobs/crm-sync.js";
 import { QUEUES, RETRY_POLICY, type QueueName } from "./queues.js";
 
 /**
@@ -147,6 +148,14 @@ async function main(): Promise<void> {
     },
   );
 
+  // The current product's only real job. Registered unconditionally for the same
+  // reason as the interest queues: a lead enqueued with no consumer is an
+  // enquiry nobody is ever told about.
+  await boss.work<CrmSyncPayload>(QUEUES.CRM_SYNC, { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await handleCrmSync(container, job.data);
+  });
+  logger.info("handler registered", { queue: QUEUES.CRM_SYNC });
+
   logger.info("dispatch handlers registered", {
     queues: [
       QUEUES.DISPATCH_NEXT_OFFER,
@@ -186,6 +195,13 @@ async function main(): Promise<void> {
   // dispatcher. Phase 4 deliberately left ON_OFFER alone because it had nothing
   // to re-dispatch with.
   const reconcileTimer = setInterval(() => {
+    // The quietest failure in the product: an enquiry captured, durable, and
+    // never mentioned to anyone because one job was lost.
+    void retryUnsyncedLeads(container).catch((error: unknown) => {
+      logger.error("lead CRM retry sweep failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     // Backstop for a lost confirmation-timeout job. A customer watching a
     // countdown that already finished is not a good thing to leave depending on
     // "an enqueue should never be lost".

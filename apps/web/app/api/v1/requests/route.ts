@@ -1,7 +1,8 @@
 import { createRequestSchema, DEFAULT_CURRENCY } from "@sfx/contracts";
 import { describeFindings, RATE_LIMITS } from "@sfx/domain";
-import { apiOk, handleRoute, parseBody } from "@/lib/route-helpers";
+import { apiFail, apiOk, handleRoute, parseBody } from "@/lib/route-helpers";
 import { getContainer } from "@/lib/container";
+import { serverEnv } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { toRequestView } from "@/lib/request-view";
 import { requireActor } from "@/lib/session";
@@ -39,6 +40,22 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   return handleRoute(async () => {
+    /*
+      The flag is enforced here, not only in the UI.
+
+      Creating a request is the entry point to everything the current phase does
+      not want to run: classification calls the AI provider, and reaching
+      SEARCHING starts dispatch, offers and timers. Switching the screen alone
+      would leave all of that one stale bookmark or one curl away, and the first
+      sign of trouble would be an unexpected bill from Anthropic.
+    */
+    if (serverEnv().INTAKE_MODE === "lead_capture") {
+      return apiFail(
+        "CONFLICT",
+        "We are taking enquiries rather than instant requests at the moment. Tell us what you need and we will get back to you.",
+      );
+    }
+
     const actor = await requireActor();
 
     const limited = await enforceRateLimit(`user:${actor.userId}`, RATE_LIMITS.REQUEST_CREATE);

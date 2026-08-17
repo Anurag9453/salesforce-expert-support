@@ -171,6 +171,11 @@ export const REQUIRED_FOR_SUBMISSION = [
   "timezone",
   "yearsExperience",
   "professionalSummary",
+  // Vetting, added once the platform started sending strangers to customers.
+  // `phone` is how we reach them when something goes wrong; `trailheadUrl` is
+  // the one claim on this form a reviewer can independently check.
+  "phone",
+  "trailheadUrl",
   "termsAcceptedAt",
   "confidentialityAcceptedAt",
 ] as const;

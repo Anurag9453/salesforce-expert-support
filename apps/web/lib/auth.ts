@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@sfx/db";
+import { getContainer } from "./container.js";
 import { serverEnv } from "./env.js";
 
 /**
@@ -36,8 +37,40 @@ function build() {
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
-      // Phase 2 turns this on with the Resend adapter behind Mailer.
-      requireEmailVerification: false,
+      /*
+        On, because every other vetting step assumes we can reach the person we
+        approved. An expert is someone we will put in front of a customer's
+        production org; "an admin clicked approve" means very little if the
+        address on the account belongs to nobody.
+
+        The cost is real and worth naming: with the console mailer the
+        verification link is printed to the terminal rather than delivered, so a
+        production launch needs a mail provider behind `Mailer` before anyone
+        outside the team can register.
+      */
+      requireEmailVerification: true,
+    },
+
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      /*
+        Routed through the same `Mailer` port as every other email rather than a
+        provider SDK, so swapping the console mailer for a real one is a
+        composition-root change and touches nothing here.
+      */
+      sendVerificationEmail: async ({ user, url }) => {
+        const { mailer } = getContainer();
+        await mailer.send({
+          to: user.email,
+          subject: "Confirm your email address",
+          text: `Confirm your email address to finish setting up your account:\n\n${url}\n\nIf you did not sign up, ignore this message.`,
+          html: `<p>Confirm your email address to finish setting up your account.</p><p><a href="${url}">Confirm my email</a></p><p>If you did not sign up, ignore this message.</p>`,
+          // One send per user per link: a double-submitted form should not mean
+          // two emails.
+          idempotencyKey: `verify:${user.id}`,
+        });
+      },
     },
 
     socialProviders: google,

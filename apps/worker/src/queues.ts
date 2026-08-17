@@ -25,6 +25,7 @@ export const QUEUES = {
   /** The chosen expert's 2-minute confirmation window. Interest-pool mode. */
   CONFIRMATION_TIMEOUT: "confirmation-timeout",
   /** §C4 — sweep stale-available experts offline. Phase 4. */
+  CRM_SYNC: "crm-sync",
   HEARTBEAT_SWEEP: "heartbeat-sweep",
   /** §18 — deliver queued notifications. Phase 6. */
   NOTIFICATION_DISPATCH: "notification-dispatch",
@@ -39,6 +40,7 @@ export interface JobPayloads {
   [QUEUES.MATCHING_DEADLINE]: { supportRequestId: string };
   [QUEUES.INTEREST_WINDOW_CLOSE]: { supportRequestId: string };
   [QUEUES.CONFIRMATION_TIMEOUT]: { supportRequestId: string; attemptId: string };
+  [QUEUES.CRM_SYNC]: { leadId: string };
   [QUEUES.HEARTBEAT_SWEEP]: Record<string, never>;
   [QUEUES.NOTIFICATION_DISPATCH]: { notificationId: string };
 }
@@ -60,6 +62,11 @@ export const RETRY_POLICY: Record<QueueName, { retryLimit: number; retryDelaySec
   // guarded on the current status, so a second run finds nothing left to do.
   [QUEUES.INTEREST_WINDOW_CLOSE]: { retryLimit: 3, retryDelaySeconds: 5 },
   [QUEUES.CONFIRMATION_TIMEOUT]: { retryLimit: 3, retryDelaySeconds: 5 },
+  // Generous, and the opposite of the dispatch path's reasoning. A retry costs
+  // nobody's attention, the push is idempotent, and the alternative to trying
+  // again is an enquiry that silently never reaches the sales team. Backoff is
+  // long enough to ride out a Salesforce maintenance window.
+  [QUEUES.CRM_SYNC]: { retryLimit: 8, retryDelaySeconds: 60 },
   [QUEUES.HEARTBEAT_SWEEP]: { retryLimit: 0, retryDelaySeconds: 0 },
   [QUEUES.NOTIFICATION_DISPATCH]: { retryLimit: 3, retryDelaySeconds: 30 },
 };

@@ -6,6 +6,8 @@
  *
  * Payment and payout remain mocks — the providers stay undecided until Q3.
  */
+export * from "./crm/mock-crm-gateway.js";
+export * from "./crm/salesforce-crm-gateway.js";
 export * from "./payment/mock-payment-gateway.js";
 export * from "./payment/stripe-payment-gateway.js";
 export * from "./payout/mock-payout-provider.js";
@@ -15,6 +17,7 @@ export * from "./persistence/prisma-request-repositories.js";
 export * from "./persistence/prisma-notification-repository.js";
 export * from "./persistence/prisma-expert-photo-repository.js";
 export * from "./persistence/prisma-webhook-repository.js";
+export * from "./persistence/prisma-payment-repository.js";
 export * from "./persistence/prisma-expert-repositories.js";
 export * from "./persistence/prisma-matching-repositories.js";
 export * from "./classification/rules-classifier.js";

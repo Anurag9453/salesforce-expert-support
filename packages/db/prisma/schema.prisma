@@ -384,6 +384,23 @@ model ExpertProfile {
   timezone            String?
   yearsExperience     Int?
   professionalSummary String?
+  /// Required before an application can be submitted. We ask customers for a
+  /// phone number and then send a stranger to talk to them — not asking the
+  /// stranger for one was backwards.
+  phone               String?
+  /// Public Trailhead profile. Required at submission because it is the one
+  /// claim on the whole form a reviewer can check in thirty seconds.
+  trailheadUrl        String?
+
+  /// What a reviewer actually confirmed on that profile, recorded at approval.
+  ///
+  /// Separate from `certifications`, which is whatever the applicant typed.
+  /// Keeping the claim and the verification in different columns is the entire
+  /// point: one is evidence, the other is an assertion, and merging them would
+  /// quietly turn every unchecked claim into a verified one.
+  verifiedCertifications   String[]  @default([])
+  certificationsVerifiedAt DateTime?
+  certificationsVerifiedBy String?
 
   /// Denormalised in V1 (§C6). Join tables were Tier 3 — language is a soft
   /// matching signal and certifications are read by a human reviewer.
@@ -894,21 +911,49 @@ model ExpertPhoto {
   @@map("expert_photos")
 }
 
-/// TIER 3 — long-term support is not a product yet.
+/// An enquiry from someone who wants help, captured before any account exists.
 ///
-/// The entry screen offers it, so something has to catch the requirement; this
-/// is that and nothing more. Deliberately no state machine, no matching, no
-/// pricing: a lead is a note that someone asked, and inventing a workflow for a
-/// product that has not been designed would be worse than an empty table.
+/// This is the whole customer-facing product in the current phase: no matching,
+/// no payment, no session. Someone says what they need and how long for, leaves
+/// their details, and a human follows up — routing it to an approved expert by
+/// hand.
+///
+/// The row is written **before** the CRM push and never depends on it. Salesforce
+/// being slow, rate-limited or down must not lose an enquiry; that is the one
+/// failure this table exists to make impossible.
 ///
 /// `summary` is redacted at intake exactly like a support request — the same
-/// prohibition on credentials and customer data applies to anything a customer
-/// types into this platform.
+/// prohibition on credentials and customer data applies to anything typed into
+/// this platform, and an anonymous form is the *most* likely place for a secret
+/// to land.
 model SupportLead {
-  id         String @id @default(cuid())
-  customerId String
+  id String @id @default(cuid())
+
+  /// Null for anonymous enquiries, which is now the normal case. Kept nullable
+  /// rather than dropped so rows raised by signed-in customers keep their owner.
+  customerId String?
+
+  /// All three are required by the form. `name` is stored whole rather than
+  /// split: demanding a surname turns people away, and Salesforce can be given a
+  /// last name derived at push time.
+  name  String
+  email String
+  phone String
 
   summary String
+
+  /// What was asked for, denormalised. A lead records what was quoted at the
+  /// time, and a later price change must not silently rewrite history.
+  durationMinutes  Int?
+  quotedPriceCents Int?
+  currency         String?
+
+  /// CRM sync state. `crmRef` is the Salesforce record id once it exists; the
+  /// attempt counter and last error make a stuck sync visible rather than silent.
+  crmRef       String?
+  crmSyncedAt  DateTime?
+  crmAttempts  Int       @default(0)
+  crmLastError String?
 
   /// Set when a human has actually followed up, so the queue is drainable.
   contactedAt DateTime?
@@ -916,9 +961,11 @@ model SupportLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer CustomerProfile? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([contactedAt, createdAt])
+  /// Finds leads still waiting to reach the CRM.
+  @@index([crmSyncedAt, createdAt])
   @@map("support_leads")
 }
 

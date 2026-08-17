@@ -18,6 +18,11 @@ const COMPLETE_DRAFT = {
   timezone: "Asia/Kolkata",
   yearsExperience: 7,
   professionalSummary: "Apex, LWC and integration work across ten Salesforce orgs.",
+  // Vetting fields. Required at submission because the platform sends this
+  // person to a customer: `phone` is how we reach them when something goes
+  // wrong, and the Trailhead profile is the one claim a reviewer can check.
+  phone: "+91 98765 43210",
+  trailheadUrl: "https://www.salesforce.com/trailblazer/priyaraghavan",
   acceptTerms: true,
   acceptConfidentiality: true,
 };
@@ -36,6 +41,9 @@ function actorFor(userId: string, overrides: Partial<Actor> = {}): Actor {
     email: user.email,
     roles: user.roles,
     status: user.status,
+    // Verified by default: these tests are about the review lifecycle, and an
+    // unverified email is its own test rather than a precondition of every one.
+    emailVerified: true,
     ...(application ? { expert: { profileId: application.id, status: application.status } } : {}),
     ...overrides,
   };
@@ -117,6 +125,49 @@ describe("requirement 1 — dual role, one identity", () => {
   it("does not remove the customer role when the expert role is added", async () => {
     await applications.start(actorFor("customer_1"));
     expect(uow.userRows.get("customer_1")?.roles).toContain("CUSTOMER");
+  });
+});
+
+describe("vetting — we must be able to reach the person we approve", () => {
+  it("refuses to submit an application from an unverified email", async () => {
+    await applications.start(actorFor("customer_1"));
+    await applications.saveDraft(actorFor("customer_1"), COMPLETE_DRAFT);
+
+    // Everything else about the application is complete. The only thing wrong
+    // is that nobody has proved the address exists.
+    await expect(
+      applications.submit(actorFor("customer_1", { emailVerified: false })),
+    ).rejects.toThrow(/Confirm your email address/);
+  });
+
+  it("lets the same application through once the address is confirmed", async () => {
+    await applications.start(actorFor("customer_1"));
+    await applications.saveDraft(actorFor("customer_1"), COMPLETE_DRAFT);
+
+    const submitted = await applications.submit(actorFor("customer_1"));
+    expect(submitted.status).toBe("SUBMITTED");
+  });
+
+  it("records what a reviewer verified, apart from what the applicant claimed", async () => {
+    await applications.start(actorFor("customer_1"));
+    await applications.saveDraft(actorFor("customer_1"), {
+      ...COMPLETE_DRAFT,
+      certifications: ["Certified Technical Architect", "Certified Application Architect"],
+    });
+    const submitted = await applications.submit(actorFor("customer_1"));
+
+    // The reviewer confirmed only one of the two claims.
+    const approved = await admin.approve(actorFor("admin_1"), submitted.id, "Checked Trailhead.", [
+      "Certified Application Architect",
+    ]);
+
+    expect(approved.certifications).toEqual([
+      "Certified Technical Architect",
+      "Certified Application Architect",
+    ]);
+    expect(approved.verifiedCertifications).toEqual(["Certified Application Architect"]);
+    expect(approved.certificationsVerifiedBy).toBe("admin_1");
+    expect(approved.certificationsVerifiedAt).not.toBeNull();
   });
 });
 

@@ -28,7 +28,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         case "claim":
           return expertAdmin.claimForReview(actor, id);
         case "approve":
-          return expertAdmin.approve(actor, id, decision.notes);
+          return expertAdmin.approve(actor, id, decision.notes, decision.verifiedCertifications);
         case "reject":
           return expertAdmin.reject(actor, id, decision.notes);
         case "suspend":
