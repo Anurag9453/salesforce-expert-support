@@ -14,6 +14,15 @@
 
 generator client {
   provider = "prisma-client-js"
+  /// The query engine is a native binary chosen per platform, and Prisma only
+  /// builds for the machine doing the generating. That is wrong the moment the
+  /// build machine and the runtime differ: Vercel builds on one Linux image and
+  /// runs functions on another, so the client shipped looking for an engine that
+  /// was never produced — "could not locate the Query Engine for runtime
+  /// rhel-openssl-3.0.x", at request time, from a build that succeeded.
+  ///
+  /// `native` keeps local development working on whatever this machine is.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

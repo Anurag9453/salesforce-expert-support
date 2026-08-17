@@ -30,7 +30,21 @@ const config: NextConfig = {
   */
   outputFileTracingRoot: join(import.meta.dirname, "../.."),
   outputFileTracingIncludes: {
-    "/**": ["../../certs/**"],
+    "/**": [
+      "../../certs/**",
+      /*
+        Prisma's query engine, for the same reason as the certificate: it is a
+        native binary opened by path at runtime, so nothing imports it and the
+        tracer cannot see it. `serverExternalPackages` keeps @prisma/client out
+        of the webpack bundle, which is correct — but it also means the engine
+        has to be carried across deliberately.
+
+        Both platform builds are matched. Shipping the darwin one to Vercel is a
+        few wasted megabytes; omitting it would break `next start` locally on
+        this machine, which is a worse trade.
+      */
+      "../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/*.node",
+    ],
   },
   webpack(config) {
     // The workspace packages write `./thing.js` in relative imports — the
