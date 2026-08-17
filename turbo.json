@@ -65,6 +65,31 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
+    /*
+      `prisma generate` cannot be cached, because what it produces does not live
+      where Turbo can see it.
+
+      It writes the generated client into `node_modules/.pnpm/@prisma+client@…/
+      node_modules/.prisma/client`, outside the package entirely, so no `outputs`
+      glob can capture it. Turbo then does the worst possible thing on a cache
+      hit: it skips the work *and* restores nothing, leaving a machine that
+      believes the client was generated when no client exists.
+
+      That is not theoretical. A Vercel build failed with
+
+          Type error: Parameter 'row' implicitly has an 'any' type
+          apps/web/app/(app)/admin/requests/page.tsx:78
+
+      one line above `@sfx/db:build: cache hit, replaying logs`. The parameter is
+      implicitly `any` because `prisma.supportRequest.findMany()` is typed by the
+      generated client — and there wasn't one. The error named a React component,
+      three layers from the cause.
+
+      Generation takes about a third of a second. There is nothing to save here.
+    */
+    "@sfx/db#build": {
+      "cache": false
+    },
     "dev": {
       "cache": false,
       "persistent": true
