@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dotenv -e ../../.env -- next dev --port 3000",
-    "build": "dotenv -e ../../.env -- next build",
-    "start": "dotenv -e ../../.env -- next start --port 3000",
+    "dev": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- next dev --port 3000",
+    "build": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- next build",
+    "start": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- next start --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",

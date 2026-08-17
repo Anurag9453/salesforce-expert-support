@@ -39,7 +39,14 @@ function pairedCredentials<T extends z.ZodRawShape>(
   });
 }
 
-const baseServerEnv = z.object({
+/**
+ * The raw shape, before the cross-field refinements wrap it.
+ *
+ * Exported so tooling can enumerate the variable names. `serverEnvSchema` is a
+ * `ZodEffects` once refinements are applied, and a `ZodEffects` has no `.shape`
+ * — the keys are only reachable from the object schema underneath.
+ */
+export const baseServerEnv = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   // ── Phase 1: required ─────────────────────────────────────────────────────
