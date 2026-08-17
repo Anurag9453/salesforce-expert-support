@@ -3,6 +3,7 @@ import type { HealthResponse } from "@sfx/contracts";
 import { NextResponse } from "next/server";
 import { getContainer } from "@/lib/container";
 import { serverEnv } from "@/lib/env";
+import { collectRuntimeDiagnostics, runtimeDiagnosticsEnabled } from "@/lib/runtime-diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,8 @@ export async function GET(): Promise<NextResponse> {
     status: healthy ? "ok" : "degraded",
     version: process.env.npm_package_version ?? "0.1.0",
     checks,
+    // Read-only, preview and local only. Temporary — see runtime-diagnostics.ts.
+    ...(runtimeDiagnosticsEnabled() ? { diagnostics: collectRuntimeDiagnostics() } : {}),
   };
 
   return NextResponse.json(body, { status: healthy ? 200 : 503 });

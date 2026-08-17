@@ -25,14 +25,56 @@ import { baseServerEnv, clientEnvSchema } from "./env.js";
 
 const turboConfig = fileURLToPath(new URL("../../../turbo.json", import.meta.url));
 
-/** `turbo.json` is JSONC — it carries comments, which `JSON.parse` rejects. */
+/**
+ * `turbo.json` is JSONC — it carries comments, which `JSON.parse` rejects.
+ *
+ * Scanned character by character rather than filtered by line, because both
+ * shortcuts are wrong here. Dropping lines that start with `//` misses block
+ * comments, which is how this test broke the moment one was added. And stripping
+ * `/* … *\/` with a regex corrupts the file, because `".next/**"` contains the
+ * opening sequence inside a string — the config is full of globs.
+ *
+ * So: track whether we are inside a string, and only treat comment markers as
+ * comments when we are not.
+ */
 function readTurboConfig(): { globalEnv?: string[]; globalPassThroughEnv?: string[] } {
   const raw = readFileSync(turboConfig, "utf8");
-  const withoutComments = raw
-    .split("\n")
-    .filter((line) => !line.trim().startsWith("//"))
-    .join("\n");
-  return JSON.parse(withoutComments) as {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    const next = raw[i + 1];
+
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      while (i < raw.length && raw[i] !== "\n") i += 1;
+      out += "\n";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      i += 2;
+      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i += 1;
+      i += 1;
+      continue;
+    }
+    out += char;
+  }
+
+  return JSON.parse(out) as {
     globalEnv?: string[];
     globalPassThroughEnv?: string[];
   };

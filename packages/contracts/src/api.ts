@@ -61,5 +61,14 @@ export const healthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   version: z.string(),
   checks: z.record(z.object({ ok: z.boolean(), detail: z.string().optional() })),
+  /**
+   * Temporary: what the deployed function can see on disk.
+   *
+   * Present only on previews and locally, never in production. Here to settle
+   * where Prisma's query engine actually lands in a Vercel function, after three
+   * attempts that each looked correct locally and failed deployed. Remove this,
+   * and its producer, once the engine loads.
+   */
+  diagnostics: z.record(z.string()).optional(),
 });
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
