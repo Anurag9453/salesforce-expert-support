@@ -292,7 +292,7 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
               {remaining}
               <span className="text-xl text-ink-subtle">s</span>
             </p>
-            <p className="mt-1 text-xs tracking-wide text-ink-subtle uppercase">
+            <p className="eyebrow mt-1 text-ink-subtle">
               {offer.isConfirmation ? "to confirm" : "to answer"}
             </p>
           </div>
@@ -326,13 +326,13 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
           </div>
           <dl className="grid grid-cols-2 gap-4 border-t border-border pt-3.5 sm:grid-cols-[auto_auto_1fr] sm:gap-8">
             <div>
-              <dt className="text-xs tracking-wide text-ink-subtle uppercase">Session</dt>
+              <dt className="eyebrow text-ink-subtle">Session</dt>
               <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-ink">
                 {offer.durationMinutes} min
               </dd>
             </div>
             <div>
-              <dt className="text-xs tracking-wide text-ink-subtle uppercase">You earn</dt>
+              <dt className="eyebrow text-ink-subtle">You earn</dt>
               <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-available">
                 {formatMoney(offer.payoutCents, offer.currency)}
               </dd>

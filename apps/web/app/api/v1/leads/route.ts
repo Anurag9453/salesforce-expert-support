@@ -1,5 +1,5 @@
 import { createSupportLeadSchema } from "@sfx/contracts";
-import { isAuthenticated, RATE_LIMITS } from "@sfx/domain";
+import { isAuthenticated, RATE_LIMITS, zonedWallClockToUtc } from "@sfx/domain";
 import { getContainer } from "@/lib/container";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { apiOk, handleRoute, parseBody } from "@/lib/route-helpers";
@@ -51,6 +51,48 @@ export async function POST(request: Request) {
     const customerId = isAuthenticated(actor) ? (actor.customerProfileId ?? null) : null;
 
     const lead = await supportLeads.submit({
+      supportType: body.data.supportType,
+      /*
+        Converted here, not in the browser.
+
+        The form sends the wall clock the customer typed plus the zone they chose,
+        and the server resolves the instant. Doing it client-side would make the
+        stored time depend on the visitor's own machine — including its clock
+        being wrong — and a callback booked against a skewed browser is a call
+        nobody takes.
+      */
+      preferredCallAt:
+        body.data.preferredCallAt && body.data.preferredTimezone
+          ? zonedWallClockToUtc({
+              wallClock: body.data.preferredCallAt,
+              timeZone: body.data.preferredTimezone,
+            })
+          : null,
+      preferredTimezone: body.data.preferredTimezone ?? null,
+      certification: body.data.certification ?? null,
+      /*
+        Parsed as UTC midnight rather than through the local `Date` constructor.
+        `new Date("2026-09-12")` is already UTC midnight, but `new Date(2026, 8,
+        12)` is midnight *wherever the server runs* — and the column is a DATE, so
+        a server west of UTC would store the day before.
+      */
+      certificationExamOn: body.data.examDate ? new Date(`${body.data.examDate}T00:00:00Z`) : null,
+      certificationHelp: body.data.certificationHelp ?? [],
+      title: body.data.title ?? null,
+      engagementCount: body.data.engagementCount ?? null,
+      engagementUnit: body.data.engagementUnit ?? null,
+      budgetBasis: body.data.budgetBasis ?? null,
+      /*
+        Whole currency in, minor units stored. Rounded rather than truncated: a
+        budget typed as 62.505 becoming 62.50 is a rounding decision, and picking
+        the one that does not quietly shave money off is free.
+      */
+      budgetAmountCents:
+        body.data.budgetAmount === undefined ? null : Math.round(body.data.budgetAmount * 100),
+      // Dollars, as the form says. Recorded explicitly rather than assumed, so a
+      // second corridor later cannot silently reinterpret old rows.
+      budgetCurrency: body.data.budgetAmount === undefined ? null : "USD",
+      budgetNegotiable: body.data.budgetNegotiable,
       name: body.data.name,
       email: body.data.email,
       phone: body.data.phone,

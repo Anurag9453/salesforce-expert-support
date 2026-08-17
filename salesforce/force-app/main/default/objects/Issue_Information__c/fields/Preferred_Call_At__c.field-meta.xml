@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Preferred_Call_At__c</fullName>
+    <description>When the customer asked to be called. Stored as an instant; Salesforce renders it in the viewer&apos;s own zone, which is why the customer&apos;s zone is kept beside it.</description>
+    <label>Preferred Call Time</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>DateTime</type>
+</CustomField>

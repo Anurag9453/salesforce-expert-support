@@ -48,7 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         skills list without losing the nav, and the blur keeps the header
         legible over whatever passes beneath it.
       */}
-      <header className="sticky top-0 z-40 border-b border-border bg-surface-raised/85 backdrop-blur-md">
+      <header className="glass sticky top-0 z-40 border-b border-border">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-5 px-6">
           {/*
             Home, not the dashboard. The landing page carries the "I need help /

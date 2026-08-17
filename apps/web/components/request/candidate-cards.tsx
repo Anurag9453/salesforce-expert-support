@@ -188,7 +188,7 @@ export function CandidateCards({
 
                 <dl className="flex gap-5 border-t border-border pt-3 text-xs">
                   <div>
-                    <dt className="tracking-wide text-ink-subtle uppercase">Rating</dt>
+                    <dt className="eyebrow text-ink-subtle">Rating</dt>
                     <dd data-numeric className="mt-0.5 text-sm text-ink">
                       {candidate.rating
                         ? `${String(candidate.rating.average)} (${String(candidate.rating.count)})`
@@ -196,7 +196,7 @@ export function CandidateCards({
                     </dd>
                   </div>
                   <div>
-                    <dt className="tracking-wide text-ink-subtle uppercase">Delivered</dt>
+                    <dt className="eyebrow text-ink-subtle">Delivered</dt>
                     <dd data-numeric className="mt-0.5 text-sm text-ink">
                       {candidate.sessionsCompleted > 0
                         ? `${String(candidate.hoursDelivered)}h · ${String(candidate.sessionsCompleted)}`

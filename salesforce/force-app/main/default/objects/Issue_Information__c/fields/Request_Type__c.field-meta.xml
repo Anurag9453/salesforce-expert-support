@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Request_Type__c</fullName>
+    <description>What kind of request this is. Instant and Long-Term are set by the platform from the customer&apos;s own choice; Scheduled and Certification based have no path through the form yet and are for manual use.</description>
+    <label>Request Type</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Instant</fullName>
+                <default>true</default>
+                <label>Instant</label>
+            </value>
+            <value>
+                <fullName>Scheduled</fullName>
+                <default>false</default>
+                <label>Scheduled</label>
+            </value>
+            <value>
+                <fullName>Long-Term</fullName>
+                <default>false</default>
+                <label>Long-Term</label>
+            </value>
+            <value>
+                <fullName>Certification based</fullName>
+                <default>false</default>
+                <label>Certification based</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

@@ -95,6 +95,16 @@ export function ChoiceCard({
   action: string;
   onSelect: () => void;
 }) {
+  /*
+    Vertical, and two to a row wherever it is used — which is why this takes no
+    layout prop. It was briefly configurable to allow a horizontal variant for a
+    full-width stack; nothing wants that now, and a branch with one live value is
+    a thing the next reader has to check rather than a thing they can rely on.
+
+    `flex-1` on the description is what makes the buttons line up: the text
+    absorbs the height difference between a two-line body and a four-line one, so
+    two cards side by side end level regardless.
+  */
   return (
     <Card interactive accent className="flex flex-col">
       <CardBody className="flex flex-1 flex-col p-6">

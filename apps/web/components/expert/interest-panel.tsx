@@ -129,13 +129,13 @@ export function InterestPanel() {
 
                   <dl className="flex flex-wrap gap-6 border-t border-border pt-3">
                     <div>
-                      <dt className="text-xs tracking-wide text-ink-subtle uppercase">Session</dt>
+                      <dt className="eyebrow text-ink-subtle">Session</dt>
                       <dd data-numeric className="font-display text-lg font-medium text-ink">
                         {item.durationMinutes} min
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs tracking-wide text-ink-subtle uppercase">You earn</dt>
+                      <dt className="eyebrow text-ink-subtle">You earn</dt>
                       <dd data-numeric className="font-display text-lg font-medium text-available">
                         {formatMoney(item.payoutCents, item.currency)}
                       </dd>

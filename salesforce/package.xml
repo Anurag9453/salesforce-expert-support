@@ -16,11 +16,16 @@
   <types>
     <members>Lead.Assigned__c</members>
     <members>Lead.Assigned_Expert__c</members>
+    <members>Lead.Budget_Amount__c</members>
+    <members>Lead.Budget_Basis__c</members>
+    <members>Lead.Budget_Negotiable__c</members>
     <members>Lead.Customer_Key__c</members>
     <members>Lead.Duration_Minutes__c</members>
+    <members>Lead.Engagement_Length__c</members>
     <members>Lead.Platform_Lead_Id__c</members>
     <members>Lead.Quoted_Amount__c</members>
     <members>Lead.Quoted_Currency__c</members>
+    <members>Lead.Support_Type__c</members>
     <name>CustomField</name>
   </types>
   <types>
@@ -37,6 +42,7 @@
     <name>PermissionSet</name>
   </types>
   <types>
+    <members>Issue_Information__c-Issue Information Layout</members>
     <members>Lead-Lead Layout</members>
     <name>Layout</name>
   </types>

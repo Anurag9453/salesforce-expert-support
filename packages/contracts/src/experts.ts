@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { cuidSchema, expertStatusSchema } from "./primitives.js";
-import { countryName, isCountryCode, isTimeZoneInCountry, TIME_ZONE_META } from "./geo.js";
+import { countryName, isCountryCode, isTimeZoneInCountry, timeZoneIdSchema } from "./geo.js";
 
 /**
  * Expert application contracts.
@@ -29,10 +29,8 @@ const countryCode = z
   .toUpperCase()
   .refine(isCountryCode, "Choose a country from the list");
 
-const timeZoneId = z
-  .string()
-  .trim()
-  .refine((value) => value in TIME_ZONE_META, "Choose a time zone from the list");
+// Shared with the scheduled-callback form; see `timeZoneIdSchema` in geo.ts.
+const timeZoneId = timeZoneIdSchema;
 
 /**
  * A zone must belong to the country chosen beside it, so "IN" +

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Preferred_Timezone__c</fullName>
+    <description>The IANA zone the customer chose. Needed to tell them the time they actually asked for rather than the viewer&apos;s translation of it.</description>
+    <externalId>false</externalId>
+    <label>Customer Time Zone</label>
+    <length>64</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

@@ -1,3 +1,4 @@
+import type { SupportType } from "@sfx/contracts";
 import type { Clock } from "../ports/clock.js";
 import type { CrmGateway } from "../ports/crm.js";
 import type { Logger } from "../ports/logger.js";
@@ -44,6 +45,20 @@ export interface LeadServiceDeps {
 }
 
 export interface SubmitLeadInput {
+  readonly supportType: SupportType;
+  readonly preferredCallAt: Date | null;
+  readonly preferredTimezone: string | null;
+  readonly certification: string | null;
+  readonly certificationExamOn: Date | null;
+  readonly certificationHelp: readonly string[];
+  readonly title: string | null;
+  readonly engagementCount: number | null;
+  readonly engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+  readonly budgetBasis: "HOURLY" | "MONTHLY" | null;
+  readonly budgetAmountCents: number | null;
+  readonly budgetCurrency: string | null;
+  readonly budgetNegotiable: boolean;
+
   readonly name: string;
   readonly email: string;
   readonly phone: string;
@@ -69,6 +84,27 @@ export class SupportLeadService {
 
     const lead = await this.deps.leads.create({
       customerId: input.customerId ?? null,
+      supportType: input.supportType,
+      preferredCallAt: input.preferredCallAt,
+      preferredTimezone: input.preferredTimezone,
+      /*
+        Not redacted, unlike the title and the description. This is one of
+        forty-eight values from a fixed list, so there is nowhere in it for a
+        pasted secret to hide — and running the scanner over it would only
+        create the possibility of mangling a legitimate credential name.
+      */
+      certification: input.certification,
+      certificationExamOn: input.certificationExamOn,
+      certificationHelp: input.certificationHelp,
+      // Redacted too. A title is a free-text field on a public form, so it is
+      // exactly as capable of carrying a pasted secret as the description.
+      title: input.title === null ? null : scanForSecrets(input.title).redacted,
+      engagementCount: input.engagementCount,
+      engagementUnit: input.engagementUnit,
+      budgetBasis: input.budgetBasis,
+      budgetAmountCents: input.budgetAmountCents,
+      budgetCurrency: input.budgetCurrency,
+      budgetNegotiable: input.budgetNegotiable,
       name: name.redacted,
       email: input.email.trim().toLowerCase(),
       phone: input.phone.trim(),
@@ -88,6 +124,7 @@ export class SupportLeadService {
 
     this.deps.logger.info("lead captured", {
       leadId: lead.id,
+      supportType: input.supportType,
       durationMinutes: input.durationMinutes,
       redactedFindings: summary.findings.length,
     });
@@ -110,6 +147,18 @@ export class SupportLeadService {
 
     const result = await this.deps.crm.pushLead({
       idempotencyKey: lead.id,
+      supportType: lead.supportType,
+      preferredCallAt: lead.preferredCallAt,
+      preferredTimezone: lead.preferredTimezone,
+      certification: lead.certification,
+      certificationExamOn: lead.certificationExamOn,
+      certificationHelp: lead.certificationHelp,
+      title: lead.title,
+      engagementCount: lead.engagementCount,
+      engagementUnit: lead.engagementUnit,
+      budgetBasis: lead.budgetBasis,
+      budgetAmountCents: lead.budgetAmountCents,
+      budgetNegotiable: lead.budgetNegotiable,
       name: lead.name,
       email: lead.email,
       phone: lead.phone,

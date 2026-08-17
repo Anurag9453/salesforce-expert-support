@@ -31,6 +31,36 @@ import type { CrmGateway, CrmLead, CrmPushResult, Logger } from "@sfx/domain";
  */
 
 const API_VERSION = "v62.0";
+
+/**
+ * Our enum to the org's restricted picklist.
+ *
+ * A lookup rather than a conditional, so a new kind of enquiry is one line here
+ * instead of another branch — and so a value the picklist does not have fails
+ * loudly at the type level rather than silently writing "Instant".
+ */
+const REQUEST_TYPE = {
+  INSTANT: "Instant",
+  SCHEDULED: "Scheduled",
+  LONG_TERM: "Long-Term",
+  CERTIFICATION: "Certification based",
+} as const satisfies Record<CrmLead["supportType"], string>;
+
+/**
+ * The same mapping for the Lead's own picklist, which uses different labels.
+ *
+ * A table for the reason above and one more: the conditional this replaced read
+ * `supportType === "LONG_TERM" ? … : "Instant support"`, which silently filed
+ * every scheduled callback as an instant request the moment SCHEDULED existed.
+ * An exhaustive record cannot fail that way — a new enum member is a type error
+ * here rather than a wrong label in the CRM.
+ */
+const SUPPORT_TYPE = {
+  INSTANT: "Instant support",
+  SCHEDULED: "Scheduled support",
+  LONG_TERM: "Long-term support",
+  CERTIFICATION: "Certification support",
+} as const satisfies Record<CrmLead["supportType"], string>;
 /**
  * The Lead is keyed on the *person*, the Issue on the *submission*.
  *
@@ -198,6 +228,9 @@ export class SalesforceCrmGateway implements CrmGateway {
           Phone: lead.phone,
           LeadSource: "Web",
           Status: this.options.initialLeadStatus ?? "Open - Not Contacted",
+          // A restricted picklist in the org, so the labels have to match its
+          // values exactly rather than being derived from the enum name.
+          Support_Type__c: SUPPORT_TYPE[lead.supportType],
           Duration_Minutes__c: lead.durationMinutes,
           Quoted_Amount__c: lead.quotedPriceCents === null ? null : lead.quotedPriceCents / 100,
           Quoted_Currency__c: lead.currency,
@@ -205,6 +238,18 @@ export class SalesforceCrmGateway implements CrmGateway {
           // keeps its own id on its Issue record, so nothing is lost by this
           // being overwritten.
           Platform_Lead_Id__c: lead.idempotencyKey,
+          // Long-term only. Sent as null rather than omitted so a customer who
+          // switches from a retainer enquiry to a one-off has the stale figures
+          // cleared rather than left behind on their Lead.
+          Engagement_Length__c: engagementLabel(lead),
+          Budget_Basis__c:
+            lead.budgetBasis === null
+              ? null
+              : lead.budgetBasis === "HOURLY"
+                ? "Per hour"
+                : "Per month",
+          Budget_Amount__c: lead.budgetAmountCents === null ? null : lead.budgetAmountCents / 100,
+          Budget_Negotiable__c: lead.budgetNegotiable,
         }),
       },
     );
@@ -220,6 +265,35 @@ export class SalesforceCrmGateway implements CrmGateway {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           Lead__c: crmLeadId,
+          Title__c: lead.title,
+          // All four values the form can produce, via the exhaustive map above.
+          Request_Type__c: REQUEST_TYPE[lead.supportType],
+          Preferred_Call_At__c: lead.preferredCallAt?.toISOString() ?? null,
+          Preferred_Timezone__c: lead.preferredTimezone,
+          /*
+            The credential's display name, not a code. Whoever picks this enquiry
+            up needs to recognise the exam, and Salesforce's own catalogue is the
+            vocabulary they already think in.
+          */
+          Certification__c: lead.certification,
+          /*
+            A DATE field, so it is sent as `YYYY-MM-DD` rather than an ISO
+            instant. Sending the full timestamp would hand Salesforce a moment to
+            interpret in the running user's zone, which is how a 12 September exam
+            becomes the 11th for anyone west of UTC.
+          */
+          Certification_Exam_Date__c: lead.certificationExamOn
+            ? lead.certificationExamOn.toISOString().slice(0, 10)
+            : null,
+          /*
+            Salesforce's own wire format for a multi-select picklist is a
+            semicolon-joined string — the same shape the values are stored in on
+            the record, which is why nothing here needs escaping. An empty
+            selection is sent as null rather than "", so the field reads as blank
+            rather than as a picklist with one empty value.
+          */
+          Help_Needed__c:
+            lead.certificationHelp.length > 0 ? lead.certificationHelp.join(";") : null,
           Description__c: lead.summary,
           Submitted_At__c: lead.submittedAt.toISOString(),
           // Duplicated from the Lead on purpose. The Lead holds the *latest*
@@ -274,6 +348,13 @@ export class SalesforceCrmGateway implements CrmGateway {
  * Salesforce requires a last name; a public form that demanded one would cost
  * more enquiries than the tidiness is worth.
  */
+/** "6 months", or null when nobody asked for a retainer. */
+function engagementLabel(lead: CrmLead): string | null {
+  if (lead.engagementCount === null || lead.engagementUnit === null) return null;
+  const noun = lead.engagementUnit.toLowerCase();
+  return `${String(lead.engagementCount)} ${lead.engagementCount === 1 ? noun : `${noun}s`}`;
+}
+
 export function splitName(full: string): { firstName: string | null; lastName: string } {
   const trimmed = full.trim().replace(/\s+/g, " ");
   if (trimmed === "") return { firstName: null, lastName: "Unknown" };

@@ -1,10 +1,15 @@
+import { certificationHelpSchema, certificationSchema } from "./certifications.js";
 import { z } from "zod";
+import { timeZoneIdSchema } from "./geo.js";
 import {
-  currencyCodeSchema,
+  budgetBasisSchema,
   cuidSchema,
+  currencyCodeSchema,
   difficultySchema,
+  engagementUnitSchema,
   requestStateSchema,
   skillSourceSchema,
+  supportTypeSchema,
 } from "./primitives.js";
 
 /**
@@ -210,28 +215,148 @@ export function countWords(text: string): number {
  * The messages are written to be read by a stranger who is already mildly
  * annoyed at filling in a form, so they say what to do rather than what is wrong.
  */
-export const createSupportLeadSchema = z.object({
-  name: z.string().trim().min(1, "Please tell us your name.").max(120),
-  email: z.string().trim().toLowerCase().email("That email address does not look right."),
-  /**
-   * Loose on purpose. Phone numbers vary enormously by country and a strict
-   * pattern rejects real people — this checks it is plausibly a number and
-   * leaves the rest to the human who calls it.
-   */
-  phone: z
-    .string()
-    .trim()
-    .min(6, "Please include a phone number we can reach you on.")
-    .max(32)
-    .regex(/^[+()\d][\d\s()+.-]*$/, "That phone number does not look right."),
-  summary: z
-    .string()
-    .trim()
-    .min(MIN_DESCRIPTION_LENGTH, "Tell us a little about what you need.")
-    .max(MAX_DESCRIPTION_LENGTH),
-  /** Optional: the tier they picked, so the quote is recorded with the enquiry. */
-  pricingTierId: cuidSchema.optional(),
-});
+export const createSupportLeadSchema = z
+  .object({
+    name: z.string().trim().min(1, "Please tell us your name.").max(120),
+    email: z.string().trim().toLowerCase().email("That email address does not look right."),
+    /**
+     * Loose on purpose. Phone numbers vary enormously by country and a strict
+     * pattern rejects real people — this checks it is plausibly a number and
+     * leaves the rest to the human who calls it.
+     */
+    phone: z
+      .string()
+      .trim()
+      .min(6, "Please include a phone number we can reach you on.")
+      .max(32)
+      .regex(/^[+()\d][\d\s()+.-]*$/, "That phone number does not look right."),
+    summary: z
+      .string()
+      .trim()
+      .min(MIN_DESCRIPTION_LENGTH, "Tell us a little about what you need.")
+      .max(MAX_DESCRIPTION_LENGTH),
+    supportType: supportTypeSchema.default("INSTANT"),
+
+    /* ── Long-term only. Optional here, required by the refinement below. ────── */
+
+    title: z.string().trim().min(1, "Give this a short title.").max(160).optional(),
+    /** 0-9. A dropdown, so the bound is the vocabulary rather than a validation. */
+    engagementCount: z.coerce.number().int().min(0).max(9).optional(),
+    engagementUnit: engagementUnitSchema.optional(),
+    budgetBasis: budgetBasisSchema.optional(),
+    /**
+     * Entered in whole currency, stored in minor units by the route. Two decimal
+     * places because an hourly rate of 62.50 is an ordinary thing to type.
+     */
+    budgetAmount: z.coerce
+      .number()
+      .nonnegative("A budget cannot be negative.")
+      .max(10_000_000)
+      .multipleOf(0.01, "Two decimal places at most.")
+      .optional(),
+    budgetNegotiable: z.boolean().default(false),
+
+    /* ── Certification only ──────────────────────────────────────────────────── */
+
+    /**
+     * Which credential they are working towards, by display name.
+     *
+     * Validated against the catalogue rather than accepted as free text — see
+     * `certificationSchema` for what that costs and why it is worth it.
+     */
+    certification: certificationSchema.optional(),
+    /**
+     * When they sit it, if it is booked. `YYYY-MM-DD`, no time and no zone.
+     *
+     * Date-only on purpose: an exam date is a calendar fact, not an instant, so
+     * it needs none of the wall-clock-to-UTC machinery a callback time does — and
+     * storing it as a timestamp would let a zone conversion move it a day.
+     *
+     * Optional even on this path. Plenty of people are studying before booking,
+     * and a required date would turn "not yet" into a dead end.
+     */
+    examDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Use the date picker.")
+      .optional(),
+    /** What kind of help, as distinct from which exam. At least one. */
+    certificationHelp: certificationHelpSchema.optional(),
+
+    /* ── Scheduled only ──────────────────────────────────────────────────────── */
+
+    /** Wall clock as the customer typed it, `YYYY-MM-DDTHH:mm`. Converted server-side. */
+    preferredCallAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Pick a date and a time.")
+      .optional(),
+    /** An IANA zone id. Never an offset — see `zonedWallClockToUtc`. */
+    preferredTimezone: timeZoneIdSchema.optional(),
+    /**
+     * Optional, and genuinely so: a long-term enquiry has no duration to pick,
+     * because nobody is buying an hour of anything.
+     */
+    pricingTierId: cuidSchema.optional(),
+  })
+  /*
+    Conditional rather than blanket-required, because the two paths genuinely ask
+    different questions. Marking these required outright would break the instant
+    form; leaving them optional outright would let a retainer enquiry arrive with
+    no idea of length or budget, which is the whole reason for asking.
+  */
+  .superRefine((value, ctx) => {
+    if (value.supportType === "SCHEDULED") {
+      for (const field of ["preferredCallAt", "preferredTimezone"] as const) {
+        if (!value[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: "required for scheduled support",
+          });
+        }
+      }
+      return;
+    }
+
+    if (value.supportType === "CERTIFICATION") {
+      if (!value.certification) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["certification"],
+          message: "required for certification support",
+        });
+      }
+      // The exam date stays optional — see the field. What they need help with
+      // does not: it is the question that decides who picks the enquiry up.
+      if (!value.certificationHelp || value.certificationHelp.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["certificationHelp"],
+          message: "Tell us what you need help with.",
+        });
+      }
+      return;
+    }
+
+    if (value.supportType !== "LONG_TERM") return;
+
+    const required = [
+      ["title", value.title],
+      ["engagementCount", value.engagementCount],
+      ["engagementUnit", value.engagementUnit],
+      ["budgetBasis", value.budgetBasis],
+      ["budgetAmount", value.budgetAmount],
+    ] as const;
+
+    for (const [field, provided] of required) {
+      if (provided === undefined || provided === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: "required for long-term support",
+        });
+      }
+    }
+  });
 export type CreateSupportLeadInput = z.infer<typeof createSupportLeadSchema>;
 
 export const supportLeadViewSchema = z.object({

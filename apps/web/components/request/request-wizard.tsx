@@ -578,7 +578,7 @@ export function RequestWizard({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[7rem_1fr] gap-4 py-3">
-      <dt className="text-xs tracking-wide text-ink-subtle uppercase">{label}</dt>
+      <dt className="eyebrow text-ink-subtle">{label}</dt>
       <dd className="min-w-0 text-sm text-ink">{children}</dd>
     </div>
   );

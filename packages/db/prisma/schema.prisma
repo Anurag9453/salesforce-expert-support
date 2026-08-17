@@ -80,6 +80,31 @@ enum Difficulty {
   ADVANCED
 }
 
+/// How long a retainer is wanted for. Paired with a count of 0-9.
+enum EngagementUnit {
+  WEEK
+  MONTH
+  YEAR
+}
+
+/// Whether a stated budget is per hour or per month.
+enum BudgetBasis {
+  HOURLY
+  MONTHLY
+}
+
+/// Which kind of help someone is asking for.
+enum SupportType {
+  /// Something is broken now.
+  INSTANT
+  /// Broken, but they want the callback at a time they chose.
+  SCHEDULED
+  /// A retainer or continuing engagement. Not a product yet; captured anyway.
+  LONG_TERM
+  /// Help passing a specific Salesforce certification.
+  CERTIFICATION
+}
+
 enum Urgency {
   INSTANT
   SCHEDULED // reserved; not reachable in V1
@@ -941,6 +966,66 @@ model SupportLead {
   phone String
 
   summary String
+
+  /// One-off fix or ongoing engagement.
+  ///
+  /// The most useful single thing the sales team can know before they call. Both
+  /// answers end in "we will get back to you" from the platform's side, but they
+  /// are different conversations — a different expert, a different commercial
+  /// shape — so asking costs one click and saves a wasted call.
+  supportType SupportType @default(INSTANT)
+
+  /// When they want to be called, and in whose clock.
+  ///
+  /// The instant is the truth; the zone is what the customer *meant*. Both are
+  /// stored because neither is sufficient alone: without the instant a DST change
+  /// moves the appointment, and without the zone nobody can tell a customer
+  /// expecting 3pm that we have them down for 3pm.
+  preferredCallAt   DateTime?
+  preferredTimezone String?
+
+  /// Which certification they are working towards, as its display name.
+  ///
+  /// A string rather than an enum: Salesforce owns this vocabulary and retires
+  /// entries from it, and an enum would make each retirement a migration that
+  /// rewrites what past customers actually asked for. The accepted values are
+  /// validated at the edge against the catalogue in `@sfx/contracts`.
+  certification String?
+
+  /// The day they sit it, when it is already booked.
+  ///
+  /// A date, not a timestamp. An exam date is a calendar fact — "12 September" is
+  /// the same day in every zone — and storing it as an instant would let a
+  /// conversion shift it either side of midnight.
+  certificationExamOn DateTime? @db.Date
+
+  /// What kind of help they asked for: a study plan, weak topics, mock exams.
+  ///
+  /// A list because these genuinely combine, and the combination is the useful
+  /// signal — somebody wanting a plan *and* a retake is a different conversation
+  /// from either alone. Empty on every other path.
+  certificationHelp String[]
+
+  /// A short label for the problem. Asked on the long-term path, where an
+  /// engagement needs a name a salesperson can put in a subject line; the instant
+  /// path derives one from the description rather than asking for it.
+  title String?
+
+  /// How long they want support for: a count of 0-9 and a unit. Two columns
+  /// rather than one string, so "everything over three months" is a query rather
+  /// than a text search.
+  engagementCount Int?
+  engagementUnit  EngagementUnit?
+
+  /// Their own estimate, and how to read it. Integer minor units like every other
+  /// money column in this schema — a budget in a float is a budget that will
+  /// eventually disagree with itself.
+  budgetBasis       BudgetBasis?
+  budgetAmountCents Int?
+  budgetCurrency    String?
+  /// Whether they said the number is movable. Sales asks anyway; this records
+  /// whether the customer volunteered it, which is a different signal.
+  budgetNegotiable  Boolean      @default(false)
 
   /// What was asked for, denormalised. A lead records what was quoted at the
   /// time, and a later price change must not silently rewrite history.

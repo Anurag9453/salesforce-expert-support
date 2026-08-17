@@ -1,4 +1,10 @@
-import type { CurrencyCode, Difficulty, RequestState, SkillSource } from "@sfx/contracts";
+import type {
+  SupportType,
+  CurrencyCode,
+  Difficulty,
+  RequestState,
+  SkillSource,
+} from "@sfx/contracts";
 import type { ActorType } from "./repositories.js";
 
 /**
@@ -246,6 +252,19 @@ export interface JobScheduler {
 export interface SupportLeadRecord {
   readonly id: string;
   readonly customerId: string | null;
+  readonly supportType: SupportType;
+  readonly preferredCallAt: Date | null;
+  readonly preferredTimezone: string | null;
+  readonly certification: string | null;
+  readonly certificationExamOn: Date | null;
+  readonly certificationHelp: readonly string[];
+  readonly title: string | null;
+  readonly engagementCount: number | null;
+  readonly engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+  readonly budgetBasis: "HOURLY" | "MONTHLY" | null;
+  readonly budgetAmountCents: number | null;
+  readonly budgetCurrency: string | null;
+  readonly budgetNegotiable: boolean;
   readonly name: string;
   readonly email: string;
   readonly phone: string;
@@ -263,6 +282,19 @@ export interface SupportLeadRecord {
 export interface SupportLeadRepository {
   create(input: {
     readonly customerId: string | null;
+    readonly supportType: SupportType;
+    readonly preferredCallAt: Date | null;
+    readonly preferredTimezone: string | null;
+    readonly certification: string | null;
+    readonly certificationExamOn: Date | null;
+    readonly certificationHelp: readonly string[];
+    readonly title: string | null;
+    readonly engagementCount: number | null;
+    readonly engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+    readonly budgetBasis: "HOURLY" | "MONTHLY" | null;
+    readonly budgetAmountCents: number | null;
+    readonly budgetCurrency: string | null;
+    readonly budgetNegotiable: boolean;
     readonly name: string;
     readonly email: string;
     readonly phone: string;

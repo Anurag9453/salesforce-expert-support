@@ -467,6 +467,19 @@ export class PrismaSupportLeadRepository implements SupportLeadRepository {
 
   async create(input: {
     customerId: string | null;
+    supportType: "INSTANT" | "SCHEDULED" | "LONG_TERM" | "CERTIFICATION";
+    preferredCallAt: Date | null;
+    preferredTimezone: string | null;
+    certification: string | null;
+    certificationExamOn: Date | null;
+    certificationHelp: readonly string[];
+    title: string | null;
+    engagementCount: number | null;
+    engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+    budgetBasis: "HOURLY" | "MONTHLY" | null;
+    budgetAmountCents: number | null;
+    budgetCurrency: string | null;
+    budgetNegotiable: boolean;
     name: string;
     email: string;
     phone: string;
@@ -475,7 +488,14 @@ export class PrismaSupportLeadRepository implements SupportLeadRepository {
     quotedPriceCents: number | null;
     currency: string | null;
   }): Promise<SupportLeadRecord> {
-    return toLead(await this.db.supportLead.create({ data: input }));
+    return toLead(
+      await this.db.supportLead.create({
+        // Copied rather than passed through: the port declares the list readonly,
+        // which is right for a value crossing a boundary, and Prisma's generated
+        // input type will not accept one.
+        data: { ...input, certificationHelp: [...input.certificationHelp] },
+      }),
+    );
   }
 
   async findById(id: string): Promise<SupportLeadRecord | null> {
@@ -520,6 +540,19 @@ export class PrismaSupportLeadRepository implements SupportLeadRepository {
 type LeadRow = {
   id: string;
   customerId: string | null;
+  supportType: "INSTANT" | "SCHEDULED" | "LONG_TERM" | "CERTIFICATION";
+  preferredCallAt: Date | null;
+  preferredTimezone: string | null;
+  certification: string | null;
+  certificationExamOn: Date | null;
+  certificationHelp: string[];
+  title: string | null;
+  engagementCount: number | null;
+  engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+  budgetBasis: "HOURLY" | "MONTHLY" | null;
+  budgetAmountCents: number | null;
+  budgetCurrency: string | null;
+  budgetNegotiable: boolean;
   name: string;
   email: string;
   phone: string;
@@ -538,6 +571,19 @@ function toLead(row: LeadRow): SupportLeadRecord {
   return {
     id: row.id,
     customerId: row.customerId,
+    supportType: row.supportType,
+    preferredCallAt: row.preferredCallAt,
+    preferredTimezone: row.preferredTimezone,
+    certification: row.certification,
+    certificationExamOn: row.certificationExamOn,
+    certificationHelp: row.certificationHelp,
+    title: row.title,
+    engagementCount: row.engagementCount,
+    engagementUnit: row.engagementUnit,
+    budgetBasis: row.budgetBasis,
+    budgetAmountCents: row.budgetAmountCents,
+    budgetCurrency: row.budgetCurrency,
+    budgetNegotiable: row.budgetNegotiable,
     name: row.name,
     email: row.email,
     phone: row.phone,

@@ -23,11 +23,16 @@
  */
 @theme {
   /* Neutrals — slightly cool, so the accent reads as deliberate. */
-  --color-surface: oklch(99% 0.002 250);
+  --color-surface: oklch(98.4% 0.0025 258);
   --color-surface-raised: oklch(100% 0 0);
-  --color-surface-sunken: oklch(97% 0.003 250);
-  --color-border: oklch(91% 0.004 250);
-  --color-border-strong: oklch(84% 0.006 250);
+  --color-surface-sunken: oklch(96.8% 0.004 258);
+  /*
+   * Borders sit lighter than before. At this weight a 1px rule reads as the edge
+   * of a surface rather than as a drawn line, which is what lets a dense panel
+   * hold a lot of structure without looking ruled.
+   */
+  --color-border: oklch(93.5% 0.003 258);
+  --color-border-strong: oklch(88% 0.005 258);
 
   --color-ink: oklch(21% 0.012 255);
   --color-ink-muted: oklch(48% 0.011 255);
@@ -54,28 +59,49 @@
    * --font-inter. Referencing those keeps the fallback stack here, where the
    * rest of the type system lives.
    */
-  --font-display:
-    var(--font-fraunces), ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  /*
+   * One family now, not two.
+   *
+   * The previous split gave headings an old-style serif with a calligraphic axis.
+   * It was distinctive, but it read as editorial — and this is an operational
+   * product whose closest relatives are dashboards, not magazines. A single
+   * precise sans, differentiated by weight, size and tracking rather than by
+   * changing family, is what the reference work does and why it reads as one
+   * coherent thing.
+   *
+   * `--font-display` survives as a name so every call site keeps working; the
+   * character now comes from the `.font-display` treatment below.
+   */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.875rem;
+  /*
+   * Two jobs, two ends of the scale. Controls stay tight — a 4px input looks
+   * engineered and lines up with its neighbours. Cards go soft, because a large
+   * radius is most of what separates a panel that feels considered from a box.
+   */
+  --radius-sm: 0.3125rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
 
   /*
    * Elevation as layered soft shadows rather than one blurry drop. A tight
    * contact shadow plus a wide ambient one is what reads as a real surface; a
    * single large blur reads as a sticker.
    */
-  --shadow-sunken: inset 0 1px 2px oklch(21% 0.012 255 / 0.05);
-  --shadow-flat: 0 1px 1px oklch(21% 0.012 255 / 0.03), 0 0 0 1px oklch(21% 0.012 255 / 0.025);
+  --shadow-sunken: inset 0 1px 2px oklch(21% 0.012 255 / 0.04);
+  --shadow-flat:
+    0 0 0 1px oklch(21% 0.012 255 / 0.04), 0 1px 2px oklch(21% 0.012 255 / 0.025);
   --shadow-raised:
-    0 1px 2px oklch(21% 0.012 255 / 0.05), 0 4px 12px -2px oklch(21% 0.012 255 / 0.06);
+    0 0 0 1px oklch(21% 0.012 255 / 0.035), 0 1px 2px oklch(21% 0.012 255 / 0.03),
+    0 8px 24px -8px oklch(21% 0.012 255 / 0.07);
   --shadow-lifted:
-    0 2px 4px oklch(21% 0.012 255 / 0.05), 0 12px 28px -6px oklch(21% 0.012 255 / 0.1);
-  --shadow-accent: 0 6px 20px -6px oklch(52% 0.17 258 / 0.45);
+    0 0 0 1px oklch(21% 0.012 255 / 0.03), 0 2px 4px oklch(21% 0.012 255 / 0.03),
+    0 18px 48px -12px oklch(21% 0.012 255 / 0.11);
+  --shadow-accent: 0 8px 26px -8px oklch(52% 0.17 258 / 0.4);
 
   /*
    * Motion. Durations are short and easings asymmetric — fast out of the gate,
@@ -187,20 +213,74 @@
     color: var(--color-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-feature-settings: "calt" 1;
+    /*
+     * A very fine grain over the whole page.
+     *
+     * This is what stops a flat near-white from looking like an empty div. It is
+     * fixed rather than scrolling, so it behaves like a property of the screen
+     * instead of a pattern on the content, and it is far below the threshold
+     * where it could interfere with reading text.
+     */
+    position: relative;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   /*
-   * Display type gets a light touch of Fraunces' SOFT and WONK axes — that is
-   * where the calligraphic character comes from. Full WONK looks like novelty;
-   * a small amount reads as a written hand.
+   * Display type is now the same family, distinguished by tracking and optical
+   * size rather than by a different face.
+   *
+   * The negative tracking is the whole trick, and it has to scale: at 40px a
+   * heading needs about -3% to stop looking loose, while the same value at 16px
+   * makes letters collide. `font-optical-sizing` lets Inter's variable axis do
+   * the rest, thinning strokes slightly as size grows.
    */
   .font-display {
-    font-variation-settings:
-      "SOFT" 30,
-      "WONK" 1;
-    letter-spacing: -0.02em;
+    font-optical-sizing: auto;
+    letter-spacing: -0.021em;
+    font-feature-settings:
+      "calt" 1,
+      "ss03" 1;
+  }
+
+  /* Anything genuinely large wants more. Applied by the clamp()ed hero sizes. */
+  .font-display:is(h1, .text-hero) {
+    letter-spacing: -0.032em;
+  }
+
+  /*
+   * The small uppercase label that appears above almost every card in the
+   * reference work. Wide tracking is not decoration here — at this size, without
+   * it, uppercase text is genuinely harder to read than lowercase.
+   */
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 550;
+    letter-spacing: 0.075em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+
+  /* Headings should break sensibly rather than leaving one word alone. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   /* Tabular numerals wherever numbers get compared: scores, timers, money. */
@@ -276,8 +356,11 @@
   }
 
   /*
-   * The hero's atmosphere: two wide, very low-chroma accent washes. A
-   * pseudo-element, so it never participates in layout and cannot intercept a
+   * The hero's atmosphere: three overlapping washes at very low chroma.
+   *
+   * Three rather than two, and offset from each other, because two symmetrical
+   * blobs read as a gradient while three at different sizes read as light. Still
+   * a pseudo-element, so it never participates in layout and cannot intercept a
    * pointer event.
    */
   .aurora {
@@ -287,13 +370,55 @@
   .aurora::before {
     content: "";
     position: absolute;
-    inset: -30% -10% auto -10%;
-    height: 34rem;
+    inset: -34% -12% auto -12%;
+    height: 40rem;
     z-index: -1;
     pointer-events: none;
+    filter: blur(0.5px);
     background:
-      radial-gradient(42rem 22rem at 22% 18%, oklch(52% 0.17 258 / 0.09), transparent 70%),
-      radial-gradient(34rem 20rem at 82% 4%, oklch(64% 0.15 152 / 0.07), transparent 68%);
+      radial-gradient(46rem 24rem at 18% 12%, oklch(52% 0.17 258 / 0.085), transparent 68%),
+      radial-gradient(32rem 20rem at 74% 2%, oklch(64% 0.15 152 / 0.055), transparent 66%),
+      radial-gradient(28rem 26rem at 52% 30%, oklch(72% 0.15 76 / 0.035), transparent 70%);
+  }
+
+  /*
+   * A translucent surface that samples what is behind it.
+   *
+   * Used for anything that floats over content — the sticky header, a dialog.
+   * The saturate() matters: a plain blur over a coloured wash goes muddy, and
+   * pushing chroma back up keeps it looking like frosted glass rather than fog.
+   */
+  .glass {
+    background-color: color-mix(in oklab, var(--color-surface-raised) 78%, transparent);
+    backdrop-filter: saturate(1.6) blur(14px);
+  }
+
+  /*
+   * A hairline that fades at both ends. Used to separate sections without the
+   * hard stop of a full-width rule, which is a detail most of the reference work
+   * shares and is disproportionately responsible for looking "smooth".
+   */
+  .rule-soft {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-border-strong) 18%,
+      var(--color-border-strong) 82%,
+      transparent
+    );
+  }
+
+  /*
+   * A one-pixel highlight along the top edge of a raised card, the way real light
+   * catches an edge. Almost subliminal on its own; across a grid of cards it is
+   * most of the difference between flat and dimensional.
+   */
+  .edge-lit {
+    box-shadow:
+      inset 0 1px 0 oklch(100% 0 0 / 0.9),
+      var(--shadow-raised);
   }
 
   /* Hairline grid as a technical texture, masked so it has no hard edge. */

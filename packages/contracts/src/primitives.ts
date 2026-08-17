@@ -140,6 +140,16 @@ export type AttemptStatus = z.infer<typeof attemptStatusSchema>;
  * causes — nobody joined, or it ran on and was closed — because the difference
  * matters to *billing*, not to the state, and is recorded as a reason.
  */
+/** One-off fix, or an ongoing engagement. Asked first, because it changes everything after. */
+export const supportTypeSchema = z.enum(["INSTANT", "SCHEDULED", "LONG_TERM", "CERTIFICATION"]);
+export type SupportType = z.infer<typeof supportTypeSchema>;
+
+export const engagementUnitSchema = z.enum(["WEEK", "MONTH", "YEAR"]);
+export type EngagementUnit = z.infer<typeof engagementUnitSchema>;
+
+export const budgetBasisSchema = z.enum(["HOURLY", "MONTHLY"]);
+export type BudgetBasis = z.infer<typeof budgetBasisSchema>;
+
 export const sessionStateSchema = z.enum([
   "SCHEDULED",
   "READY",

@@ -18,7 +18,10 @@ export function Card({
   return (
     <div
       className={cn(
-        "relative rounded-xl border border-border bg-surface-raised shadow-flat",
+        // `edge-lit` adds the one-pixel highlight along the top edge that reads as
+        // light catching a real surface. Barely visible alone; across a grid it
+        // is most of the difference between flat and dimensional.
+        "edge-lit relative rounded-xl border border-border bg-surface-raised",
         accent &&
           cn(
             "before:absolute before:inset-x-0 before:top-0 before:h-px",

@@ -158,15 +158,13 @@ export default async function ExpertRequestPage({ params }: { params: Promise<{ 
 
           <dl className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-3">
             <div>
-              <dt className="text-xs tracking-wide text-ink-subtle uppercase">Session</dt>
+              <dt className="eyebrow text-ink-subtle">Session</dt>
               <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-ink">
                 {durationMinutes} min
               </dd>
             </div>
             <div>
-              <dt className="text-xs tracking-wide text-ink-subtle uppercase">
-                {live ? "You earn" : "Would have earned"}
-              </dt>
+              <dt className="eyebrow text-ink-subtle">{live ? "You earn" : "Would have earned"}</dt>
               <dd data-numeric className="font-display mt-0.5 text-lg font-medium text-available">
                 {/* Their payout, never the customer's price. */}
                 {formatMoney(request.quotedExpertPayoutCents, request.currency)}
@@ -174,7 +172,7 @@ export default async function ExpertRequestPage({ params }: { params: Promise<{ 
             </div>
             {attempt.offeredAt && (
               <div>
-                <dt className="text-xs tracking-wide text-ink-subtle uppercase">Offered</dt>
+                <dt className="eyebrow text-ink-subtle">Offered</dt>
                 <dd className="mt-0.5 text-sm text-ink">
                   <time dateTime={attempt.offeredAt.toISOString()}>
                     {attempt.offeredAt.toLocaleString()}

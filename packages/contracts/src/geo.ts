@@ -1,3 +1,4 @@
+import { z } from "zod";
 /**
  * Country and time-zone picklists. GENERATED — do not edit by hand.
  *
@@ -971,3 +972,19 @@ export function timeZonesForCountry(code: string): readonly string[] {
 export function isTimeZoneInCountry(timeZone: string, countryCode: string): boolean {
   return timeZonesForCountry(countryCode).includes(timeZone);
 }
+
+/**
+ * A time zone the platform knows about.
+ *
+ * Published here, beside the data it checks against, rather than defined
+ * privately by each caller — the expert application and the scheduled-callback
+ * form both need it, and two copies of a validation rule is one that drifts.
+ *
+ * It admits IANA ids only. An offset like `+05:30` fails, deliberately: an offset
+ * has forgotten which country's rules produced it and so cannot survive a
+ * daylight-saving change.
+ */
+export const timeZoneIdSchema = z
+  .string()
+  .trim()
+  .refine((value) => value in TIME_ZONE_META, "Choose a time zone from the list");

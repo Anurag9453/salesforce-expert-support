@@ -1,4 +1,4 @@
-<messaging:emailTemplate subject="New request from {!relatedTo.Lead__r.Name}" recipientType="User" relatedToType="Issue_Information__c">
+<messaging:emailTemplate subject="{!IF(relatedTo.Request_Type__c == null, 'New', relatedTo.Request_Type__c)} request from {!relatedTo.Lead__r.Name}" recipientType="User" relatedToType="Issue_Information__c">
 <messaging:htmlEmailBody >
 <html><body style="font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5">
   <h2 style="margin:0 0 4px">A customer has raised a request</h2>
@@ -14,6 +14,14 @@
     <tr><td style="padding:8px 0;color:#666">Requested</td>
         <td style="padding:8px 0">{!relatedTo.Lead__r.Duration_Minutes__c} minutes &#183; {!relatedTo.Lead__r.Quoted_Amount__c} {!relatedTo.Lead__r.Quoted_Currency__c}</td></tr>
   </table>
+
+  <apex:outputPanel rendered="{!relatedTo.Preferred_Call_At__c != null}" layout="none">
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:520px">
+    <tr><td style="padding:8px 0;color:#666;width:140px">Call requested</td>
+        <td style="padding:8px 0"><strong>{!relatedTo.Preferred_Call_At__c}</strong>
+        <apex:outputText rendered="{!relatedTo.Preferred_Timezone__c != null}" value=" — customer chose {!relatedTo.Preferred_Timezone__c}"/></td></tr>
+  </table>
+  </apex:outputPanel>
 
   <h3 style="margin:24px 0 6px">What they described</h3>
   <div style="white-space:pre-wrap;background:#f6f7f9;border-left:3px solid #0b5cab;padding:12px 14px">{!relatedTo.Description__c}</div>

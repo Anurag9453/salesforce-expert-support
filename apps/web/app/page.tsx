@@ -228,7 +228,7 @@ function EntryCard({
           : "border-border shadow-flat hover:border-accent/30",
       )}
     >
-      <span className="text-xs font-medium tracking-[0.08em] text-accent uppercase">{eyebrow}</span>
+      <span className="eyebrow text-accent">{eyebrow}</span>
       <span className="font-display mt-2 text-xl font-medium text-ink">{title}</span>
       <span className="mt-2 flex-1 text-sm leading-relaxed text-ink-muted">{body}</span>
       <span
@@ -257,7 +257,7 @@ function SectionHeading({
 }) {
   return (
     <div className="animate-rise-in">
-      <p className="text-xs font-medium tracking-[0.08em] text-accent uppercase">{eyebrow}</p>
+      <p className="eyebrow text-accent">{eyebrow}</p>
       <h2 className="font-display mt-3 max-w-md text-3xl leading-tight font-medium text-balance text-ink">
         {title}
       </h2>

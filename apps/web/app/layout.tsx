@@ -1,28 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
 /**
- * Two variable families, self-hosted at build time by next/font — no runtime
+ * One variable family, self-hosted at build time by next/font — no runtime
  * request to a font CDN, so there is no third-party dependency on the critical
  * render path and no layout shift once cached.
  *
- * Fraunces carries the display voice. Its SOFT and WONK axes are what give the
- * headings a written, calligraphic quality; `axes` has to name them explicitly
- * or next/font ships the weight axis alone and the `font-variation-settings` in
- * globals.css silently does nothing.
+ * It used to be two. Fraunces carried the headings with its calligraphic axes
+ * turned on, which was distinctive but read as editorial rather than
+ * operational. Headings now differ from body text by weight, size and tracking
+ * instead of by family — see `.font-display` in globals.css. Dropping the second
+ * family also removes a font from the critical path.
+ *
+ * `opsz` is named explicitly: without it next/font ships the weight axis alone
+ * and the `font-optical-sizing` in globals.css silently does nothing.
  */
-const display = Fraunces({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-fraunces",
-  axes: ["SOFT", "WONK", "opsz"],
-});
-
 const sans = Inter({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-inter",
+  axes: ["opsz"],
 });
 
 export const metadata: Metadata = {
@@ -42,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable}`}>
+    <html lang="en" className={sans.variable}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Help_Needed__c</fullName>
+    <description>What kind of certification help was asked for. A multi-select so it stays countable in reports; the values match the application&apos;s own list exactly.</description>
+    <label>Help Needed</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>MultiselectPicklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Study plan</fullName>
+                <default>false</default>
+                <label>Study plan</label>
+            </value>
+            <value>
+                <fullName>Weak topics</fullName>
+                <default>false</default>
+                <label>Weak topics</label>
+            </value>
+            <value>
+                <fullName>Hands-on practice</fullName>
+                <default>false</default>
+                <label>Hands-on practice</label>
+            </value>
+            <value>
+                <fullName>Mock exams</fullName>
+                <default>false</default>
+                <label>Mock exams</label>
+            </value>
+            <value>
+                <fullName>Retake after failing</fullName>
+                <default>false</default>
+                <label>Retake after failing</label>
+            </value>
+            <value>
+                <fullName>Exam-day strategy</fullName>
+                <default>false</default>
+                <label>Exam-day strategy</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+    <visibleLines>6</visibleLines>
+</CustomField>

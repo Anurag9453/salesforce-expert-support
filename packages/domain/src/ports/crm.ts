@@ -13,12 +13,30 @@
 
 export interface CrmLead {
   readonly idempotencyKey: string;
+  /** One-off or ongoing. The first thing the sales team wants to know. */
+  readonly supportType: "INSTANT" | "SCHEDULED" | "LONG_TERM" | "CERTIFICATION";
   readonly name: string;
   readonly email: string;
   readonly phone: string;
   /** Already redacted. A CRM is not a safe place for a credential either. */
   readonly summary: string;
   readonly durationMinutes: number | null;
+  /* ── Certification only. ────────────────────────────────────────────────── */
+  /** Which credential they are working towards. */
+  readonly certification: string | null;
+  /** The day they sit it, when booked. Date-only; no zone applies. */
+  readonly certificationExamOn: Date | null;
+  /** What kind of help they asked for. Empty on every other path. */
+  readonly certificationHelp: readonly string[];
+  /* ── Long-term only; null on an instant enquiry. ────────────────────────── */
+  readonly preferredCallAt: Date | null;
+  readonly preferredTimezone: string | null;
+  readonly title: string | null;
+  readonly engagementCount: number | null;
+  readonly engagementUnit: "WEEK" | "MONTH" | "YEAR" | null;
+  readonly budgetBasis: "HOURLY" | "MONTHLY" | null;
+  readonly budgetAmountCents: number | null;
+  readonly budgetNegotiable: boolean;
   readonly quotedPriceCents: number | null;
   readonly currency: string | null;
   readonly submittedAt: Date;
