@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Everything this platform adds to a Salesforce org.
+
+  Retrieved from source rather than hand-written, so it is genuinely deployable:
+  `sf project deploy start` against a fresh org reproduces the whole CRM side.
+  Before this existed it lived only in one Developer Edition org, and losing that
+  org meant redoing an afternoon of clicking.
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+  <types>
+    <members>Issue_Information__c</members>
+    <members>Salesforce_Expert__c</members>
+    <name>CustomObject</name>
+  </types>
+  <types>
+    <members>Lead.Assigned__c</members>
+    <members>Lead.Assigned_Expert__c</members>
+    <members>Lead.Customer_Key__c</members>
+    <members>Lead.Duration_Minutes__c</members>
+    <members>Lead.Platform_Lead_Id__c</members>
+    <members>Lead.Quoted_Amount__c</members>
+    <members>Lead.Quoted_Currency__c</members>
+    <name>CustomField</name>
+  </types>
+  <types>
+    <members>IssueNotificationHandler</members>
+    <members>IssueNotificationHandlerTest</members>
+    <name>ApexClass</name>
+  </types>
+  <types>
+    <members>IssueInformationTrigger</members>
+    <name>ApexTrigger</name>
+  </types>
+  <types>
+    <members>Support_Platform_Integration</members>
+    <name>PermissionSet</name>
+  </types>
+  <types>
+    <members>Lead-Lead Layout</members>
+    <name>Layout</name>
+  </types>
+  <types>
+    <members>Lead_Enquiry_Page</members>
+    <name>FlexiPage</name>
+  </types>
+  <types>
+    <members>Support_Platform/New_Request_Notification</members>
+    <name>EmailTemplate</name>
+  </types>
+  <types>
+    <members>Support_Platform</members>
+    <name>EmailFolder</name>
+  </types>
+  <version>62.0</version>
+</Package>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Platform_Lead_Id__c</fullName>
+    <caseSensitive>false</caseSensitive>
+    <description>Key this record is upserted on, so a retried sync updates rather than duplicates.</description>
+    <externalId>true</externalId>
+    <label>Platform Lead Id</label>
+    <length>64</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

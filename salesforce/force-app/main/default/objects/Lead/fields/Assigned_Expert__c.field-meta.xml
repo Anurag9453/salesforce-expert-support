@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Assigned_Expert__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>The vetted expert this enquiry was routed to. Set by the sales team.</description>
+    <label>Assigned Expert</label>
+    <referenceTo>Salesforce_Expert__c</referenceTo>
+    <relationshipLabel>Assigned Leads</relationshipLabel>
+    <relationshipName>Assigned_Leads</relationshipName>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <type>Lookup</type>
+</CustomField>

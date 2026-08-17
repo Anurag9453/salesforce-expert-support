@@ -33,3 +33,10 @@ playwright-report/
 # sentry
 .sentryclirc
 .storage/
+
+# Salesforce CLI local state. `.sf` and `.sfdx` hold org auth — an access token
+# in git is a token published to everyone with repo access.
+.sf/
+.sfdx/
+salesforce/.sf/
+salesforce/.sfdx/

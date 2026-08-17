@@ -1,0 +1,28 @@
+<messaging:emailTemplate subject="New request from {!relatedTo.Lead__r.Name}" recipientType="User" relatedToType="Issue_Information__c">
+<messaging:htmlEmailBody >
+<html><body style="font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5">
+  <h2 style="margin:0 0 4px">A customer has raised a request</h2>
+  <p style="margin:0 0 20px;color:#666">{!relatedTo.Name}</p>
+
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:520px">
+    <tr><td style="padding:8px 0;color:#666;width:140px">Customer</td>
+        <td style="padding:8px 0"><strong>{!relatedTo.Lead__r.Name}</strong></td></tr>
+    <tr><td style="padding:8px 0;color:#666">Email</td>
+        <td style="padding:8px 0">{!relatedTo.Lead__r.Email}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Phone</td>
+        <td style="padding:8px 0">{!relatedTo.Lead__r.Phone}</td></tr>
+    <tr><td style="padding:8px 0;color:#666">Requested</td>
+        <td style="padding:8px 0">{!relatedTo.Lead__r.Duration_Minutes__c} minutes &#183; {!relatedTo.Lead__r.Quoted_Amount__c} {!relatedTo.Lead__r.Quoted_Currency__c}</td></tr>
+  </table>
+
+  <h3 style="margin:24px 0 6px">What they described</h3>
+  <div style="white-space:pre-wrap;background:#f6f7f9;border-left:3px solid #0b5cab;padding:12px 14px">{!relatedTo.Description__c}</div>
+
+  <p style="margin:24px 0 0">
+    <a href="{!LEFT($Api.Partner_Server_URL_260, FIND('.com', $Api.Partner_Server_URL_260)+4)}{!relatedTo.Lead__c}"
+       style="background:#0b5cab;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open the lead</a>
+  </p>
+  <p style="margin:20px 0 0;color:#888;font-size:12px">Sent automatically when the enquiry was captured.</p>
+</body></html>
+</messaging:htmlEmailBody>
+</messaging:emailTemplate>

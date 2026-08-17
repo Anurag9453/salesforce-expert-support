@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Customer_Key__c</fullName>
+    <caseSensitive>false</caseSensitive>
+    <description>The customer&apos;s email, lowercased. The key this Lead is matched on, so the same person asking twice adds an Issue rather than a duplicate Lead. Do not edit.</description>
+    <externalId>true</externalId>
+    <label>Customer Key</label>
+    <length>255</length>
+    <required>false</required>
+    <trackFeedHistory>false</trackFeedHistory>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>
