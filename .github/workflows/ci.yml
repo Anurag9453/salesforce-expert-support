@@ -40,9 +40,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here on purpose. `pnpm/action-setup@v4` refuses to run when
+      # a version is given in both places, and package.json#packageManager
+      # (pnpm@11.18.0) is the one Corepack and every developer already follow.
+      # With both set, this step failed before installing anything — so CI has
+      # never actually verified a commit, which is why the broken Vercel builds
+      # reached deployment with a green-looking pipeline behind them.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v4
         with:
