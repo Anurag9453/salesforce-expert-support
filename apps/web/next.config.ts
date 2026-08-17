@@ -8,6 +8,19 @@ const config: NextConfig = {
   // Prisma ships native query engines; bundling it into the server runtime
   // breaks them. Top-level in Next 15 (it left `experimental` in this release).
   serverExternalPackages: ["@prisma/client", ".prisma/client"],
+  /*
+    Force the CA certificate into the deployed bundle.
+
+    Vercel ships only the files its tracer can see, and it works by following
+    imports. Our certificate is never imported — it is named by a path inside a
+    database connection string, which is an opaque string as far as any bundler is
+    concerned. Without this the file is simply absent in production and every
+    `sslmode=verify-full` connection fails on a missing CA, at runtime, after a
+    build that looked fine.
+  */
+  outputFileTracingIncludes: {
+    "/**": ["../../certs/**"],
+  },
   webpack(config) {
     // The workspace packages write `./thing.js` in relative imports — the
     // portable ESM convention, and what plain Node would need. Webpack does not

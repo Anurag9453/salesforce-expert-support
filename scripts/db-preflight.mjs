@@ -9,7 +9,7 @@
  *
  * Usage: node preflight.mjs <env-file>
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { Client } from "pg";
 
 const envFile = process.argv[2];
@@ -75,6 +75,36 @@ for (const role of ROLES) {
   if (!/sslmode=/.test(raw)) {
     warn(`${role.name} does not set sslmode — Supabase requires TLS; sslmode=require is the safe default`);
   }
+
+  /*
+    A `sslrootcert` naming a file that is not there fails deep inside the driver,
+    as ENOENT on a path nobody was looking at. Checked here so the message says
+    what to do about it.
+
+    Every Supabase endpoint — pooler included — presents a certificate from
+    Supabase's own CA rather than a public one, and node-postgres treats
+    `sslmode=require` as full verification. So this file is what makes the worker
+    and the realtime LISTEN connect at all, not merely connect more strictly.
+  */
+  const rootCert = /[?&]sslrootcert=([^&]+)/.exec(raw)?.[1];
+  if (rootCert) {
+    const path = decodeURIComponent(rootCert);
+    if (!existsSync(path)) {
+      fail(`${role.name} names a CA file that does not exist: ${path}`);
+    } else {
+      const pem = readFileSync(path, "utf8");
+      if (!pem.includes("BEGIN CERTIFICATE")) {
+        fail(`${role.name}: ${path} is not a PEM certificate`);
+      } else {
+        const count = (pem.match(/BEGIN CERTIFICATE/g) ?? []).length;
+        ok(`${role.name} CA file present (${count} certificate${count === 1 ? "" : "s"})`);
+      }
+    }
+  } else if (role.expect === "direct") {
+    warn(
+      `${role.name} sets no sslrootcert — node-postgres verifies fully, and Supabase uses its own CA, so pg-boss and the realtime LISTEN will fail with "self-signed certificate in certificate chain"`,
+    );
+  }
 }
 
 // All three must be the same database, or the app and worker disagree about reality.
@@ -94,16 +124,35 @@ if (!direct) {
   process.exit(1);
 }
 
+/*
+  Stop before connecting if the configuration is already known bad.
+
+  Not just tidiness: `new Client()` reads the `sslrootcert` file eagerly, so a
+  missing CA threw ENOENT from the constructor — outside the try below — and
+  buried the readable diagnosis above under a stack trace. Fail fast and say so.
+*/
+if (failures > 0) {
+  console.log(
+    `\n${failures} blocking, ${warnings} to look at — not connecting until the configuration is sound.`,
+  );
+  process.exit(1);
+}
+
 console.log("── the server (read-only) ──");
 /*
-  TLS is left to the connection string's own `sslmode`, deliberately.
+  TLS is left entirely to the connection string — `sslmode` and `sslrootcert`.
 
   An earlier version passed `ssl: { rejectUnauthorized: false }` unconditionally.
-  That broke against the local server, which speaks no TLS at all — and worse, it
-  would have silently disabled certificate verification against the production
-  one, turning "encrypted" into "encrypted to whoever answered". Supabase presents
-  a certificate from a public CA, so ordinary verification succeeds; a URL that
-  needs `sslmode=require` should say so, and the check above warns when it does not.
+  That broke against the local server, which speaks no TLS at all, and would have
+  silently skipped certificate verification against a production one — turning
+  "encrypted" into "encrypted to whoever answered".
+
+  Note that Supabase does *not* use a public CA: every endpoint, pooler included,
+  presents a certificate from "Supabase Intermediate 2021 CA". Since node-postgres
+  maps `sslmode=require` onto full verification, a `sslrootcert` naming Supabase's
+  CA is what makes these connections work at all. Prisma's engine does not verify
+  by default, which is why migrations can succeed against a URL the worker cannot
+  use — a split worth knowing about before it is diagnosed at 2am.
 */
 const client = new Client({ connectionString: direct });
 try {

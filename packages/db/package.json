@@ -10,17 +10,18 @@
   },
   "scripts": {
     "generate": "prisma generate",
-    "migrate": "dotenv -e ../../.env -- prisma migrate dev",
-    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
-    "migrate:fresh": "dotenv -e ../../.env -- prisma migrate reset --force --skip-seed",
-    "studio": "dotenv -e ../../.env -- prisma studio",
-    "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "migrate": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- prisma migrate dev",
+    "migrate:deploy": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- prisma migrate deploy",
+    "migrate:fresh": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- node scripts/assert-local-target.mjs && dotenv --no-expand -e ${ENV_FILE:-../../.env} -- prisma migrate reset --force --skip-seed",
+    "studio": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- prisma studio",
+    "seed": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- tsx prisma/seed.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "prisma generate",
     "clean": "rm -rf .turbo node_modules/.prisma",
-    "assert-schema": "dotenv -e ../../.env -- node scripts/assert-schema.mjs",
-    "grant-role": "dotenv -e ../../.env -- node scripts/grant-role.mjs"
+    "assert-schema": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- node scripts/assert-schema.mjs",
+    "grant-role": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- node scripts/grant-role.mjs",
+    "migrate:status": "dotenv --no-expand -e ${ENV_FILE:-../../.env} -- prisma migrate status"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1"

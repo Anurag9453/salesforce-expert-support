@@ -32,7 +32,13 @@
     "e2e": "bash scripts/e2e/phase2-accounts.sh && bash scripts/e2e/phase3-requests.sh && bash scripts/e2e/phase4-availability.sh && bash scripts/e2e/phase5-matching.sh && bash scripts/e2e/phase6-realtime.sh",
     "e2e:phase4": "bash scripts/e2e/phase4-availability.sh",
     "e2e:phase5": "bash scripts/e2e/phase5-matching.sh",
-    "e2e:phase6": "bash scripts/e2e/phase6-realtime.sh"
+    "e2e:phase6": "bash scripts/e2e/phase6-realtime.sh",
+    "db:migrate:status": "pnpm --filter @sfx/db migrate:status",
+    "db:remote:status": "ENV_FILE=../../.env.supabase pnpm --filter @sfx/db migrate:status",
+    "db:remote:deploy": "ENV_FILE=../../.env.supabase pnpm --filter @sfx/db migrate:deploy",
+    "db:remote:seed": "ENV_FILE=../../.env.supabase pnpm --filter @sfx/db seed",
+    "db:remote:preflight": "node scripts/db-preflight.mjs .env.supabase",
+    "db:remote:verify": "node scripts/db-verify.mjs .env.supabase .env"
   },
   "devDependencies": {
     "@sfx/config": "workspace:*",

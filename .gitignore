@@ -13,7 +13,10 @@ out/
 # env — never commit
 .env
 .env.*
+# Templates only. Both are placeholders — the `.env.*` rule above is what keeps
+# every filled-in variant out, including .env.supabase and .env.production.local.
 !.env.example
+!.env.vercel.example
 
 # local embedded postgres data dir + binaries
 .postgres/
