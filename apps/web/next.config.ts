@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
@@ -18,6 +19,16 @@ const config: NextConfig = {
     `sslmode=verify-full` connection fails on a missing CA, at runtime, after a
     build that looked fine.
   */
+  /*
+    Trace from the monorepo root, not from this app directory.
+
+    `outputFileTracingIncludes` below names a path above `apps/web`, and Next
+    will not carry files from outside the tracing root into the bundle. The
+    default root is the directory holding this config, so without this the
+    include silently does nothing — the build succeeds and the certificate is
+    absent at runtime.
+  */
+  outputFileTracingRoot: join(import.meta.dirname, "../.."),
   outputFileTracingIncludes: {
     "/**": ["../../certs/**"],
   },
