@@ -183,6 +183,7 @@ export function DispatchPanel({
           <div className="flex flex-wrap gap-2">
             <Button
               variant={forcing ? "danger" : "primary"}
+              loading={pending}
               disabled={pending || reason.trim().length === 0}
               onClick={() => void dispatch()}
             >

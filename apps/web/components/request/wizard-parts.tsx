@@ -52,6 +52,7 @@ export function StepCard({
   onNext,
   nextLabel = "Next",
   nextDisabled,
+  nextLoading,
 }: {
   title: string;
   hint?: string;
@@ -60,6 +61,12 @@ export function StepCard({
   onNext: () => void;
   nextLabel?: string;
   nextDisabled?: boolean;
+  /**
+   * The last step submits, and that is a network round trip on a public form.
+   * Separate from `nextDisabled`, which means "you have not filled this in yet" —
+   * the two look the same to CSS and mean opposite things to a person.
+   */
+  nextLoading?: boolean;
 }) {
   return (
     <Card accent className="animate-rise-in">
@@ -68,10 +75,10 @@ export function StepCard({
         {hint && <p className="mt-1 text-sm text-ink-muted">{hint}</p>}
         <div className="mt-5">{children}</div>
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-5">
-          <Button size="lg" onClick={onNext} disabled={nextDisabled}>
+          <Button size="lg" onClick={onNext} loading={nextLoading} disabled={nextDisabled}>
             {nextLabel}
           </Button>
-          <Button variant="ghost" onClick={onBack}>
+          <Button variant="ghost" onClick={onBack} disabled={nextLoading}>
             Back
           </Button>
         </div>

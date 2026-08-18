@@ -81,7 +81,7 @@ export function AuthForm({
           />
         </Field>
 
-        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+        <Button type="submit" size="lg" className="w-full" loading={pending} disabled={pending}>
           {pending ? "Working…" : isRegister ? "Create account" : "Sign in"}
         </Button>
       </form>
@@ -97,6 +97,7 @@ export function AuthForm({
             variant="secondary"
             size="lg"
             className="w-full"
+            loading={pending}
             disabled={pending}
             onClick={() => void signIn.social({ provider: "google", callbackURL: redirectTo })}
           >

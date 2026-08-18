@@ -84,7 +84,13 @@ export function AlertSettings() {
           </Button>
         </span>
       ) : (
-        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void enableSound()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          disabled={busy}
+          onClick={() => void enableSound()}
+        >
           Enable sound
         </Button>
       )}
@@ -119,6 +125,7 @@ export function AlertSettings() {
         <Button
           variant="secondary"
           size="sm"
+          loading={busy}
           disabled={busy}
           onClick={() => void enableNotifications()}
         >

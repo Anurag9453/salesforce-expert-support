@@ -827,6 +827,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
           hint="Check it over before we send it. Nothing is charged."
           onBack={goBack}
           onNext={() => void submit()}
+          nextLoading={submitting}
           nextLabel={submitting ? "Sending…" : "Send my request"}
           nextDisabled={submitting}
         >

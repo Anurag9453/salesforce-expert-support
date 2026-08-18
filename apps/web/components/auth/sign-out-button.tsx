@@ -13,6 +13,7 @@ export function SignOutButton() {
     <Button
       variant="ghost"
       size="sm"
+      loading={pending}
       disabled={pending}
       onClick={async () => {
         setPending(true);

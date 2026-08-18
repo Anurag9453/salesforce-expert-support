@@ -236,7 +236,12 @@ export function RequestStatus({ initial }: { initial: RequestView }) {
 
       {request.cancellable && (
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={() => void cancel()} disabled={cancelling}>
+          <Button
+            variant="secondary"
+            onClick={() => void cancel()}
+            loading={cancelling}
+            disabled={cancelling}
+          >
             {cancelling ? "Cancelling…" : "Cancel request"}
           </Button>
           <span className="text-xs text-ink-subtle">

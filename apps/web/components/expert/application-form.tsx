@@ -311,11 +311,17 @@ export function ExpertApplicationForm({
 
         {!readOnly && (
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" variant="secondary" disabled={saving || submitting}>
+            <Button
+              type="submit"
+              variant="secondary"
+              loading={saving || submitting}
+              disabled={saving || submitting}
+            >
               {saving ? "Saving…" : "Save draft"}
             </Button>
             <Button
               onClick={() => void submit()}
+              loading={saving || submitting}
               disabled={saving || submitting || outstanding.length > 0}
             >
               {submitting ? "Submitting…" : "Submit for review"}

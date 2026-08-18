@@ -208,6 +208,7 @@ export function CandidateCards({
                 <Button
                   size="md"
                   className="mt-1 w-full"
+                  loading={busy !== null}
                   disabled={busy !== null}
                   onClick={() => void choose(candidate.attemptId)}
                 >

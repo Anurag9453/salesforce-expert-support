@@ -1,4 +1,5 @@
 export * from "./button.js";
+export * from "./spinner.js";
 export * from "./card.js";
 export * from "./badge.js";
 export * from "./input.js";

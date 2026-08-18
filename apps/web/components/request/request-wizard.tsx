@@ -402,6 +402,7 @@ export function RequestWizard({
           hint="No password needed. You can set one later if you want."
           onBack={() => setStep("describe")}
           onNext={() => void identify()}
+          nextLoading={submitting}
           nextLabel={submitting ? "Saving…" : "Continue"}
           nextDisabled={submitting || name.trim() === "" || !email.includes("@")}
         >

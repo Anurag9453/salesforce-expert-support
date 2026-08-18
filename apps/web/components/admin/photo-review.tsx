@@ -148,6 +148,7 @@ export function PhotoReview() {
                       <Button
                         variant="danger"
                         size="sm"
+                        loading={busyId === item.id}
                         disabled={busyId === item.id}
                         onClick={() => void decide(item.id, "reject")}
                       >
@@ -169,6 +170,7 @@ export function PhotoReview() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
+                      loading={busyId === item.id}
                       disabled={busyId === item.id}
                       onClick={() => void decide(item.id, "approve")}
                     >
@@ -177,6 +179,7 @@ export function PhotoReview() {
                     <Button
                       variant="secondary"
                       size="sm"
+                      loading={busyId === item.id}
                       disabled={busyId === item.id}
                       onClick={() => {
                         setRejecting(item.id);

@@ -64,7 +64,7 @@ export function StartApplication() {
             This uses the account you are signed in with. You keep your customer access, and you can
             request help yourself at any time.
           </Alert>
-          <Button onClick={() => void start()} disabled={pending} size="lg">
+          <Button onClick={() => void start()} loading={pending} disabled={pending} size="lg">
             {pending ? "Starting…" : "Start my application"}
           </Button>
         </CardBody>

@@ -74,7 +74,13 @@ export function PayPanel({
 
         {error && <Alert tone="danger">{error}</Alert>}
 
-        <Button size="lg" className="w-full" disabled={paying} onClick={() => void pay()}>
+        <Button
+          size="lg"
+          className="w-full"
+          loading={paying}
+          disabled={paying}
+          onClick={() => void pay()}
+        >
           {paying ? "Taking payment…" : `Pay ${formatMoney(amountCents, currency)}`}
         </Button>
 

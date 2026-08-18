@@ -141,6 +141,7 @@ export function AttachmentPicker({
         type="button"
         variant="secondary"
         size="sm"
+        loading={busy}
         disabled={busy || atLimit}
         onClick={() => inputRef.current?.click()}
       >

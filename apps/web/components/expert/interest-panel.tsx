@@ -145,6 +145,7 @@ export function InterestPanel() {
                   <div className="flex flex-wrap gap-2.5 pt-1">
                     <Button
                       size="md"
+                      loading={busy === item.attemptId}
                       disabled={busy === item.attemptId}
                       onClick={() => void answer(item.attemptId, true)}
                     >
@@ -153,6 +154,7 @@ export function InterestPanel() {
                     <Button
                       size="md"
                       variant="secondary"
+                      loading={busy === item.attemptId}
                       disabled={busy === item.attemptId}
                       onClick={() => void answer(item.attemptId, false)}
                     >

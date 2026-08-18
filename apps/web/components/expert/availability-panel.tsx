@@ -197,6 +197,7 @@ export function AvailabilityPanel({
             <Button
               variant={online ? "secondary" : "primary"}
               size="lg"
+              loading={pending}
               disabled={pending}
               onClick={() => void toggle(!online)}
             >

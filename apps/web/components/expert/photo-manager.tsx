@@ -177,13 +177,20 @@ export function PhotoManager({ initial }: { initial: OwnPhotoView | null }) {
             <Button
               variant="secondary"
               size="sm"
+              loading={busy}
               disabled={busy}
               onClick={() => fileRef.current?.click()}
             >
               {busy ? "Uploading…" : photo ? "Replace photo" : "Upload a photo"}
             </Button>
             {photo && photo.status !== "REPLACED" && (
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={busy}
+                disabled={busy}
+                onClick={() => void remove()}
+              >
                 Remove
               </Button>
             )}

@@ -391,6 +391,7 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="danger"
+                loading={pending}
                 disabled={pending}
                 onClick={() =>
                   void respond({
@@ -412,6 +413,7 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
             <Button
               size="lg"
               className="min-w-32 flex-1 sm:flex-none"
+              loading={pending}
               disabled={pending}
               onClick={() => void respond({ decision: "accept" })}
             >
@@ -420,6 +422,7 @@ export function OfferPanel({ initial }: { initial: OfferView | null }) {
             <Button
               size="lg"
               variant="secondary"
+              loading={pending}
               disabled={pending}
               onClick={() => setDeclining(true)}
             >

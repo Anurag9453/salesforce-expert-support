@@ -1,5 +1,6 @@
 import { type ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "./spinner.js";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
@@ -52,18 +53,36 @@ export function buttonClasses(
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
+  /**
+   * Shows a spinner, disables the button, and sets `aria-busy`.
+   *
+   * One prop rather than three call sites remembering to do all three: the
+   * failure mode of doing it by hand is a button that spins and is still
+   * clickable, which submits the form twice.
+   */
+  loading?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant = "primary", size = "md", type = "button", ...props },
+  { className, variant = "primary", size = "md", type = "button", loading, children, ...props },
   ref,
 ) {
   return (
     <button
       ref={ref}
       type={type}
+      /*
+        Disabled while loading, so a second click cannot start a second request.
+        `aria-busy` says the same thing to a screen reader, which the spinner
+        itself cannot — it is decorative and hidden.
+      */
+      disabled={loading === true || props.disabled === true}
+      aria-busy={loading === true ? true : undefined}
       className={buttonClasses({ variant, size, ...(className ? { className } : {}) })}
       {...props}
-    />
+    >
+      {loading === true ? <Spinner size={size === "lg" ? "md" : "sm"} /> : null}
+      {children}
+    </button>
   );
 });

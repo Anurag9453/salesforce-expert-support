@@ -271,7 +271,11 @@ export function SkillsManager({
           ) : null}
 
           <div className="flex gap-2">
-            <Button disabled={pending || !draft.skillSlug || atLimit} onClick={() => void save()}>
+            <Button
+              loading={pending}
+              disabled={pending || !draft.skillSlug || atLimit}
+              onClick={() => void save()}
+            >
               {pending ? "Saving…" : editing ? "Update skill" : "Add skill"}
             </Button>
             {draft.skillSlug ? (

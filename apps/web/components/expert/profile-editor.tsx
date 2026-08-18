@@ -168,7 +168,7 @@ export function ProfileEditor({ profile }: { profile: ExpertApplication }) {
             </Field>
           </div>
 
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" loading={saving} disabled={saving}>
             {saving ? "Saving…" : "Save changes"}
           </Button>
         </CardBody>

@@ -96,6 +96,7 @@ export function SkillVerification({
                 variant={skill.verified ? "ghost" : "secondary"}
                 size="sm"
                 className="ml-auto"
+                loading={pending}
                 disabled={pending}
                 onClick={() => {
                   setActive(active === skill.skillSlug ? null : skill.skillSlug);
@@ -129,6 +130,7 @@ export function SkillVerification({
                   <Button
                     size="sm"
                     variant={skill.verified ? "danger" : "primary"}
+                    loading={pending}
                     disabled={pending || notes.trim().length === 0}
                     onClick={() => void submit(skill.skillSlug, !skill.verified)}
                   >

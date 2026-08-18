@@ -98,6 +98,7 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
           {canClaim && (
             <Button
               variant="secondary"
+              loading={pending}
               disabled={pending}
               onClick={() => void send({ decision: "claim" })}
             >
@@ -108,6 +109,7 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
             <Button
               key={action}
               variant={ACTIONS[action].variant}
+              loading={pending}
               disabled={pending}
               onClick={() => setActive(action)}
             >
@@ -154,6 +156,7 @@ export function DecisionPanel({ application }: { application: ExpertApplication 
           <div className="flex flex-wrap gap-2">
             <Button
               variant={ACTIONS[active].variant}
+              loading={pending}
               disabled={pending || notes.trim().length === 0}
               onClick={() =>
                 void send({
