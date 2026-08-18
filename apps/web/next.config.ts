@@ -42,6 +42,14 @@ const config: NextConfig = {
         Both platform builds are matched. Shipping the darwin one to Vercel is a
         few wasted megabytes; omitting it would break `next start` locally on
         this machine, which is a worse trade.
+
+        This is the mechanism that works, confirmed from inside a deployed
+        function: the engine is present under
+        `/var/task/node_modules/.pnpm/@prisma+client@…/node_modules/.prisma/client`
+        and Prisma loads it. Copying the engine into `.next/server` instead does
+        not — Vercel assembles a function from the trace rather than shipping the
+        build directory, so an untraced file there is pruned. That approach was
+        tried, and removed.
       */
       "../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/*.node",
     ],
