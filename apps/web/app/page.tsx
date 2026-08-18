@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { Badge, buttonClasses, LinkPending } from "@/components/ui";
-import { cn } from "@/lib/utils";
+import { Badge, buttonClasses, ChoiceCard, LinkPending } from "@/components/ui";
 
 /**
  * The front door.
@@ -91,20 +90,21 @@ export default function Page() {
               className="animate-rise-in mt-10 grid gap-4 sm:grid-cols-2"
               style={{ animationDelay: "160ms" }}
             >
-              <EntryCard
+              <ChoiceCard
                 href="/request-help"
-                eyebrow="I need help"
-                title="Hire a Salesforce expert"
-                body="Describe the problem and we match you to someone with real depth in it. No account needed to start."
-                cta="Get a Salesforce expert"
-                primary
+                badge={<Badge tone="available">No account needed</Badge>}
+                title="Get a Salesforce expert"
+                lede="Something is broken, or you need someone who has done this before."
+                body="Describe the problem and we match you to someone with real depth in it. Instant, scheduled, long-term or certification help — you pick on the next screen."
+                action="Get a Salesforce expert"
               />
-              <EntryCard
+              <ChoiceCard
                 href="/expert-application"
-                eyebrow="I can help"
+                badge={<Badge tone="accent">Paid work</Badge>}
                 title="Become a Salesforce expert"
+                lede="You have the depth and want the work."
                 body="Paid work matched to your actual strengths. Applications are reviewed by a human, with identity and photo checks."
-                cta="Become a Salesforce expert"
+                action="Become a Salesforce expert"
               />
             </div>
 
@@ -200,56 +200,6 @@ export default function Page() {
         </div>
       </footer>
     </main>
-  );
-}
-
-function EntryCard({
-  href,
-  eyebrow,
-  title,
-  body,
-  cta,
-  primary,
-}: {
-  href: string;
-  eyebrow: string;
-  title: string;
-  body: string;
-  cta: string;
-  primary?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "interactive group flex flex-col rounded-xl border bg-surface-raised p-6 text-left",
-        "hover:-translate-y-0.5 hover:shadow-lifted",
-        primary
-          ? "border-accent/40 shadow-raised"
-          : "border-border shadow-flat hover:border-accent/30",
-      )}
-    >
-      <span className="eyebrow text-accent">{eyebrow}</span>
-      <span className="font-display mt-2 text-xl font-medium text-ink">{title}</span>
-      <span className="mt-2 flex-1 text-sm leading-relaxed text-ink-muted">{body}</span>
-      <span
-        className={cn(
-          buttonClasses({ variant: primary ? "primary" : "secondary", size: "md" }),
-          "mt-5 w-full",
-        )}
-      >
-        {cta}
-        {/*
-          Inside the Link, so `useLinkStatus` can see this navigation. These
-          cards go to pages that query on the server; without this the click
-          produces no visible change until the next segment has been fetched.
-        */}
-        <LinkPending />
-        <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
-          →
-        </span>
-      </span>
-    </Link>
   );
 }
 

@@ -2,6 +2,7 @@ export * from "./button.js";
 export * from "./spinner.js";
 export * from "./pending-link.js";
 export * from "./card.js";
+export * from "./choice-card.js";
 export * from "./badge.js";
 export * from "./input.js";
 export * from "./textarea.js";

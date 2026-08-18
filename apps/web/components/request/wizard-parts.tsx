@@ -87,42 +87,9 @@ export function StepCard({
   );
 }
 
-export function ChoiceCard({
-  title,
-  lede,
-  body,
-  badge,
-  action,
-  onSelect,
-}: {
-  title: string;
-  lede: string;
-  body: string;
-  badge: React.ReactNode;
-  action: string;
-  onSelect: () => void;
-}) {
-  /*
-    Vertical, and two to a row wherever it is used — which is why this takes no
-    layout prop. It was briefly configurable to allow a horizontal variant for a
-    full-width stack; nothing wants that now, and a branch with one live value is
-    a thing the next reader has to check rather than a thing they can rely on.
-
-    `flex-1` on the description is what makes the buttons line up: the text
-    absorbs the height difference between a two-line body and a four-line one, so
-    two cards side by side end level regardless.
-  */
-  return (
-    <Card interactive accent className="flex flex-col">
-      <CardBody className="flex flex-1 flex-col p-6">
-        {badge}
-        <h2 className="font-display mt-3 text-xl font-medium text-ink">{title}</h2>
-        <p className="mt-1 text-sm font-medium text-ink-muted">{lede}</p>
-        <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-muted">{body}</p>
-        <Button size="lg" className="mt-5 w-full" onClick={onSelect}>
-          {action}
-        </Button>
-      </CardBody>
-    </Card>
-  );
-}
+/*
+  ChoiceCard moved to components/ui, because the landing page needs the same card
+  and had grown its own near-copy. Re-exported here so the wizards' imports keep
+  reading as one list of local parts.
+*/
+export { ChoiceCard } from "@/components/ui";
