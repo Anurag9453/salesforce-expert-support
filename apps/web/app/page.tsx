@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Badge, buttonClasses, ChoiceCard, LinkPending } from "@/components/ui";
+import { SiteFooter } from "@/components/site-footer";
 
 /**
  * The front door.
@@ -190,15 +191,7 @@ export default function Page() {
       </section>
 
       {/* ── Footer, carrying the data-safety notice ───────────────────────── */}
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-start sm:justify-between">
-          <p className="font-display text-sm font-medium text-ink">Salesforce Expert Support</p>
-          <p className="max-w-md text-xs leading-relaxed text-ink-subtle">
-            Never share passwords, access tokens, private keys, or production customer data through
-            this platform. Health Cloud technical support is in scope; actual patient data is not.
-          </p>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

@@ -1,8 +1,10 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, buttonClasses } from "./button.js";
 import { Card, CardBody } from "./card.js";
-import { LinkPending } from "./pending-link.js";
+import { Spinner } from "./spinner.js";
 
 /**
  * A card presenting one option: badge, title, one-line lede, body, full-width
@@ -10,9 +12,7 @@ import { LinkPending } from "./pending-link.js";
  *
  * Shared rather than duplicated. The landing page and the intake wizard both
  * offer "here are your options, pick one", and they had drifted into two
- * different-looking answers to the same question — the landing page's version
- * used an eyebrow and a bordered panel, the wizard's a badge and a filled button.
- * Two visual languages for one idea, on consecutive screens.
+ * different-looking answers to the same question on consecutive screens.
  *
  * Vertical, and two to a row wherever it is used. `flex-1` on the body is what
  * makes the buttons line up: the text absorbs the height difference between a
@@ -21,10 +21,22 @@ import { LinkPending } from "./pending-link.js";
  * ## Link or button
  *
  * `href` navigates; `onSelect` advances client-side state. Exactly one is
- * expected — the wizard's cards move between steps without a URL change, the
- * landing page's go to another route. Rendering a `<Link>` for a route and a
- * `<button>` for a callback keeps middle-click, right-click and prefetch working
- * where they should, which a div with an onClick would quietly break.
+ * expected, enforced by the type. A `<Link>` for a route and a `<button>` for a
+ * callback keeps middle-click, right-click and prefetch working where they
+ * should, which a div with an onClick would quietly break.
+ *
+ * ## Why the pending state is tracked here rather than by the framework
+ *
+ * `useLinkStatus` and `loading.tsx` should both cover this, and neither showed
+ * anything in production. The destination takes about three and a half seconds —
+ * measured, not guessed — so the window is not the problem. Rather than keep
+ * guessing at prefetch heuristics and router internals, this tracks the click
+ * itself: `onClick` fires before the navigation starts, and the component
+ * unmounts when the next page renders, so the spinner covers exactly the wait.
+ *
+ * The cost of being wrong here is small and self-correcting — a spinner that
+ * appears on a click that turns out to be instant just flashes — while the cost
+ * of showing nothing is a button that looks broken for three seconds.
  */
 type Common = {
   title: string;
@@ -38,6 +50,7 @@ export function ChoiceCard(
   props: Common & ({ href: string; onSelect?: never } | { onSelect: () => void; href?: never }),
 ) {
   const { title, lede, body, badge, action } = props;
+  const [navigating, setNavigating] = useState(false);
 
   const content = (
     <>
@@ -53,16 +66,21 @@ export function ChoiceCard(
       <Card interactive accent className="flex flex-col">
         {/*
           The whole card is the link, not just the button — a card that looks
-          pressable should be pressable anywhere. The action below is styled as a
-          button rather than being one, since a button inside a link is invalid
-          markup and browsers disagree about what to do with it.
+          pressable should be pressable anywhere. The action is styled as a button
+          rather than being one, because a <button> inside a link is invalid markup
+          that browsers disagree about.
         */}
-        <Link href={props.href} className="flex flex-1 flex-col">
+        <Link
+          href={props.href}
+          className="flex flex-1 flex-col"
+          onClick={() => setNavigating(true)}
+          aria-busy={navigating ? true : undefined}
+        >
           <CardBody className="flex flex-1 flex-col p-6">
             {content}
             <span className={buttonClasses({ size: "lg", className: "mt-5 w-full" })}>
-              {action}
-              <LinkPending />
+              {navigating ? <Spinner size="sm" /> : null}
+              {navigating ? "Opening…" : action}
             </span>
           </CardBody>
         </Link>

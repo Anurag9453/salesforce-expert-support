@@ -5,6 +5,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { PricingTierView, TaxonomyCategory } from "@sfx/contracts";
 import { Alert } from "@/components/ui";
+import { SiteFooter } from "@/components/site-footer";
 import { LeadWizard } from "@/components/request/lead-wizard";
 import { RequestWizard } from "@/components/request/request-wizard";
 import { getContainer } from "@/lib/container";
@@ -132,6 +133,10 @@ export default async function RequestHelpPage() {
           )}
         </div>
       </main>
+
+      {/* The page that asks for personal data should be one click from the notice
+          that explains what happens to it. */}
+      <SiteFooter />
     </div>
   );
 }
