@@ -96,7 +96,7 @@ export default function Page() {
                 eyebrow="I need help"
                 title="Hire a Salesforce expert"
                 body="Describe the problem and we match you to someone with real depth in it. No account needed to start."
-                cta="Get expert help"
+                cta="Get a Salesforce expert"
                 primary
               />
               <EntryCard
@@ -104,7 +104,7 @@ export default function Page() {
                 eyebrow="I can help"
                 title="Become a Salesforce expert"
                 body="Paid work matched to your actual strengths. Applications are reviewed by a human, with identity and photo checks."
-                cta="Apply as an expert"
+                cta="Become a Salesforce expert"
               />
             </div>
 
@@ -112,7 +112,7 @@ export default function Page() {
               className="animate-fade-in mt-5 text-xs text-ink-subtle"
               style={{ animationDelay: "240ms" }}
             >
-              Already have an account?{" "}
+              Already an expert?{" "}
               <Link href="/login" className="text-accent underline-offset-2 hover:underline">
                 Sign in
               </Link>
@@ -181,8 +181,8 @@ export default function Page() {
             <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-ink-muted">
               Describe the problem once. We will find the person who has already solved it.
             </p>
-            <Link href="/register" className={buttonClasses({ size: "lg", className: "mt-8" })}>
-              Get expert help
+            <Link href="/request-help" className={buttonClasses({ size: "lg", className: "mt-8" })}>
+              Get a Salesforce expert
             </Link>
           </div>
         </div>

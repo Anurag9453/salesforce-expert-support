@@ -87,13 +87,19 @@ export default async function RequestHelpPage() {
           >
             Salesforce Expert Support
           </Link>
+          {/*
+            "Expert sign in", not "Sign in". This is the customer intake page, and
+            a customer never needs an account — a bare sign-in link here reads as a
+            step they have to take before describing their problem, which is the
+            exact friction this path exists to remove.
+          */}
           {signedIn ? (
             <Link href="/dashboard" className="text-xs text-ink-muted hover:text-ink">
               Dashboard
             </Link>
           ) : (
-            <Link href="/login" className="text-xs text-accent hover:underline">
-              Sign in
+            <Link href="/login" className="text-xs text-ink-subtle hover:text-ink">
+              Expert sign in
             </Link>
           )}
         </div>
