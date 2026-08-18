@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Badge, buttonClasses } from "@/components/ui";
+import { Badge, buttonClasses, LinkPending } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -183,6 +183,7 @@ export default function Page() {
             </p>
             <Link href="/request-help" className={buttonClasses({ size: "lg", className: "mt-8" })}>
               Get a Salesforce expert
+              <LinkPending />
             </Link>
           </div>
         </div>
@@ -238,6 +239,12 @@ function EntryCard({
         )}
       >
         {cta}
+        {/*
+          Inside the Link, so `useLinkStatus` can see this navigation. These
+          cards go to pages that query on the server; without this the click
+          produces no visible change until the next segment has been fetched.
+        */}
+        <LinkPending />
         <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">
           →
         </span>
