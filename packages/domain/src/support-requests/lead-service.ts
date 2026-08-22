@@ -207,6 +207,51 @@ export class SupportLeadService {
     throw new Error(`CRM push failed for ${lead.id}: ${result.reason}`);
   }
 
+  /**
+   * Push every lead that has not reached the CRM, in this process.
+   *
+   * The difference from `retryUnsynced` matters: that one *enqueues*, which is
+   * correct when an always-on worker is draining the queue and useless when there
+   * is not one — the job is written and never read, which is exactly the state
+   * that loses enquiries.
+   *
+   * This does the work directly, so it can be driven by anything that can make an
+   * HTTP request on a schedule. Each lead is attempted independently: one
+   * Salesforce validation rule rejecting one record must not stop the other
+   * twenty-four from going through.
+   */
+  async syncPendingToCrm(limit = 25): Promise<{
+    attempted: number;
+    synced: number;
+    failed: number;
+  }> {
+    const stuck = await this.deps.leads.listAwaitingCrm({
+      limit,
+      maxAttempts: this.deps.maxCrmAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    });
+
+    let synced = 0;
+    let failed = 0;
+    for (const lead of stuck) {
+      try {
+        const result = await this.syncToCrm(lead.id);
+        if (result.status === "created" || result.status === "duplicate") synced += 1;
+        else failed += 1;
+      } catch (error) {
+        // `syncToCrm` throws on a retryable failure to hand backoff to a job
+        // runner. There is no job runner here, and the attempt is already recorded
+        // on the row, so the loop continues to the next lead.
+        failed += 1;
+        this.deps.logger.warn("crm reconcile could not push a lead", {
+          leadId: lead.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { attempted: stuck.length, synced, failed };
+  }
+
   /** Backstop for a lost job. Same shape as the other reconcilers. */
   async retryUnsynced(limit = 25): Promise<{ attempted: number }> {
     const stuck = await this.deps.leads.listAwaitingCrm({

@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { createSupportLeadSchema } from "@sfx/contracts";
 import { isAuthenticated, RATE_LIMITS, zonedWallClockToUtc } from "@sfx/domain";
 import { getContainer } from "@/lib/container";
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     const body = await parseBody(request, createSupportLeadSchema);
     if (!body.ok) return body.response;
 
-    const { supportLeads, pricing } = getContainer();
+    const { supportLeads, pricing, logger } = getContainer();
 
     // The quote is looked up server-side from the tier id. A price that arrives
     // in a request body is a price the sender chooses.
@@ -101,6 +102,43 @@ export async function POST(request: Request) {
       quotedPriceCents: tier?.priceCents ?? null,
       currency: tier?.currency ?? null,
       customerId,
+    });
+
+    /*
+      Push to the CRM after the response, not before it.
+
+      `submit` already enqueued a durable `crm-sync` job, which is the right design
+      and is consumed by the always-on worker. There is no always-on worker
+      deployed, so on Vercel that job is written and never read: the enquiry reaches
+      the database and stops there.
+
+      `after` closes the gap without changing the architecture. It runs once the
+      response has been sent, so the customer's "thank you" screen is not waiting on
+      Salesforce being awake — which was the whole reason the push was asynchronous —
+      while the lead still lands in the CRM a second or two after being submitted.
+
+      The queued job stays, and is not redundant: when a worker does exist it
+      becomes the retry path for whatever this attempt failed. `syncToCrm` is
+      idempotent either way — an already-synced lead returns immediately, and both
+      Salesforce writes are upserts keyed on our own id.
+    */
+    after(async () => {
+      try {
+        const result = await supportLeads.syncToCrm(lead.id);
+        logger.info("crm push attempted inline", { leadId: lead.id, status: result.status });
+      } catch (error) {
+        /*
+          Swallowed deliberately. `syncToCrm` throws on a retryable failure so that a
+          job runner can back off, but `after` has no retry — rethrowing would only
+          produce an unhandled rejection. The failure is already recorded on the row
+          as `crmLastError` and `crmAttempts`, which is what the reconcile route
+          reads.
+        */
+        logger.warn("crm push failed inline; left for the reconciler", {
+          leadId: lead.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
 
     // The id and a timestamp, nothing more. Echoing the stored contact details

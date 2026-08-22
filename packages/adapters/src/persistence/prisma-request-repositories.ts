@@ -509,6 +509,35 @@ export class PrismaSupportLeadRepository implements SupportLeadRepository {
     syncedAt: Date | null;
     error: string | null;
   }): Promise<void> {
+    /*
+      A failure must not erase a success.
+
+      There are two things that push a lead to the CRM — the inline attempt when it
+      is submitted, and the durable job — and they can run at the same moment. The
+      first time both ran together, one created the Salesforce record and the other
+      was rejected as a duplicate a fraction of a second apart. Whichever wrote
+      last won.
+
+      That is fine when the success lands last and wrong when it does not: an
+      unconditional write of `syncedAt: null` would clear the timestamp and the CRM
+      reference from a lead that is sitting in Salesforce, and the reconciler would
+      then push it again forever.
+
+      So a failure only records itself while the lead is still unsynced. The
+      `updateMany` is what makes that atomic — a read-then-write would have the same
+      race one layer up.
+    */
+    if (input.syncedAt === null) {
+      await this.db.supportLead.updateMany({
+        where: { id: input.id, crmSyncedAt: null },
+        data: {
+          crmLastError: input.error,
+          crmAttempts: { increment: 1 },
+        },
+      });
+      return;
+    }
+
     await this.db.supportLead.update({
       where: { id: input.id },
       data: {

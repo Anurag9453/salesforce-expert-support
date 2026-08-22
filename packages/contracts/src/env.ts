@@ -209,6 +209,15 @@ export const baseServerEnv = z.object({
   INTAKE_MODE: z.enum(["lead_capture", "full"]).default("lead_capture"),
 
   CRM_PROVIDER: z.enum(["salesforce", "mock"]).default("mock"),
+  /**
+   * Shared secret for the scheduled reconcile route.
+   *
+   * Optional, and its absence disables the route entirely rather than leaving it
+   * open — an endpoint that talks to a third party on request is a way to make us
+   * hammer Salesforce for free. Vercel Cron sends this as a bearer token
+   * automatically once the variable is set on the project.
+   */
+  CRON_SECRET: z.string().min(16).optional(),
   SALESFORCE_INSTANCE_URL: z.string().url().optional(),
   SALESFORCE_CLIENT_ID: z.string().min(1).optional(),
   SALESFORCE_CLIENT_SECRET: z.string().min(1).optional(),
