@@ -38,17 +38,15 @@ function build() {
       enabled: true,
       minPasswordLength: 12,
       /*
-        On, because every other vetting step assumes we can reach the person we
-        approved. An expert is someone we will put in front of a customer's
-        production org; "an admin clicked approve" means very little if the
-        address on the account belongs to nobody.
+        On in production, because every other vetting step assumes we can reach
+        the person we approved.
 
-        The cost is real and worth naming: with the console mailer the
-        verification link is printed to the terminal rather than delivered, so a
-        production launch needs a mail provider behind `Mailer` before anyone
-        outside the team can register.
+        Off when the console mailer is in use: the confirmation link is only
+        printed to the terminal, so requiring it made local signup look broken —
+        the account was created, then sign-in failed with "Email not verified"
+        because nobody could click a message that was never delivered.
       */
-      requireEmailVerification: true,
+      requireEmailVerification: env.MAILER_PROVIDER !== "mock",
     },
 
     emailVerification: {

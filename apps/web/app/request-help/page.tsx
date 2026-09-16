@@ -6,41 +6,30 @@ import { redirect } from "next/navigation";
 import type { PricingTierView, TaxonomyCategory } from "@sfx/contracts";
 import { Alert } from "@/components/ui";
 import { SiteFooter } from "@/components/site-footer";
+import { LandingHeader } from "@/components/landing/landing-header";
+import { SpecialtyGrid } from "@/components/landing/specialty-grid";
 import { LeadWizard } from "@/components/request/lead-wizard";
 import { RequestWizard } from "@/components/request/request-wizard";
 import { getContainer } from "@/lib/container";
 import { serverEnv } from "@/lib/env";
 import { getActor } from "@/lib/session";
+import { resolveSpecialty, shortCategoryName, specialtyHeadline } from "@/lib/specialty";
 
-export const metadata: Metadata = { title: "Get expert help" };
+export const metadata: Metadata = { title: "Hire a Salesforce expert" };
 export const dynamic = "force-dynamic";
 
-/**
- * Intake, reachable **without an account**.
- *
- * Deliberately outside the authenticated route group. Someone whose production
- * org is broken should be able to start describing it from the landing page
- * without being bounced to a login screen first — and being bounced was exactly
- * what happened while this page lived under `(app)`.
- *
- * Identity is collected later, inside the wizard, once they have actually written
- * something. See `/api/v1/guest` for why that still creates a real account.
- *
- * Minimal chrome on purpose: no nav, no bell. This is a focused flow with a
- * single outcome, and a header full of links to elsewhere is a header full of
- * ways to abandon it.
- */
-export default async function RequestHelpPage() {
+export default async function RequestHelpPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; specialty?: string }>;
+}) {
+  const params = await searchParams;
   const actor = await getActor();
   const signedIn = actor !== ANONYMOUS;
   const leadCapture = serverEnv().INTAKE_MODE === "lead_capture";
 
   const { supportRequests, taxonomy, pricing } = getContainer();
 
-  // One live request at a time — two would compete for the same experts and hold
-  // two authorizations on the same card. Only checkable when we know who they
-  // are, and only meaningful when requests are dispatched at all: under lead
-  // capture there is no live request to collide with.
   if (signedIn && !leadCapture) {
     const active = await supportRequests.findActive(actor);
     if (active) redirect(`/request/${active.id}`);
@@ -60,6 +49,12 @@ export default async function RequestHelpPage() {
       .map((skill) => ({ slug: skill.slug, name: skill.name })),
   }));
 
+  const specialty = resolveSpecialty(
+    { q: params.q, specialty: params.specialty },
+    grouped,
+  );
+  const freeText = specialty ? null : (params.q?.trim() || null);
+
   const tierViews: PricingTierView[] = tiers.map((tier) => ({
     id: tier.id,
     name: tier.name,
@@ -70,72 +65,76 @@ export default async function RequestHelpPage() {
 
   if (tierViews.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-16">
-        <Alert tone="warning" title="No session types are available">
-          Pricing has not been configured yet. Run <code>pnpm db:setup</code>.
-        </Alert>
+      <div className="min-h-dvh">
+        <LandingHeader />
+        <div className="mx-auto max-w-2xl px-6 py-16">
+          <Alert tone="warning" title="No session types are available">
+            Pricing has not been configured yet. Run <code>pnpm db:setup</code>.
+          </Alert>
+        </div>
       </div>
     );
   }
 
+  const headline = specialty
+    ? specialtyHeadline(specialty)
+    : freeText
+      ? `Help with “${freeText}”`
+      : "Hire a Salesforce expert";
+
+  const lede = specialty
+    ? `Tell us about the ${specialty.skillName ?? shortCategoryName(specialty.categoryName)} work. We match you to a vetted expert in this specialty.`
+    : "Pick a specialty, or describe the work — we match you to a vetted expert.";
+
   return (
-    <div className="aurora min-h-dvh">
-      <header className="border-b border-border bg-surface-raised/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-2xl items-center justify-between px-6">
-          <Link
-            href="/"
-            className="font-display interactive text-[0.9375rem] font-medium tracking-tight text-ink hover:text-accent"
-          >
-            Salesforce Expert Support
-          </Link>
-          {/*
-            "Expert sign in", not "Sign in". This is the customer intake page, and
-            a customer never needs an account — a bare sign-in link here reads as a
-            step they have to take before describing their problem, which is the
-            exact friction this path exists to remove.
-          */}
-          {signedIn ? (
-            <Link href="/dashboard" className="text-xs text-ink-muted hover:text-ink">
-              Dashboard
-            </Link>
+    <div className="min-h-dvh overflow-x-clip">
+      <LandingHeader />
+
+      <section className="landing-hero">
+        <div className="mx-auto max-w-6xl px-6 py-10 sm:py-12">
+          {specialty ? (
+            <p className="text-xs font-medium tracking-wide text-white/55 uppercase">
+              {specialty.categoryName}
+              {specialty.skills.length > 0 ? ` · ${String(specialty.skills.length)} skills` : ""}
+            </p>
           ) : (
-            <Link href="/login" className="text-xs text-ink-subtle hover:text-ink">
-              Expert sign in
-            </Link>
+            <p className="text-xs font-medium tracking-wide text-white/55 uppercase">Request help</p>
           )}
+          <h1 className="font-display mt-2 max-w-2xl text-[clamp(1.7rem,4.5vw,2.6rem)] leading-[1.15] font-semibold break-words text-wrap text-white">
+            {headline}
+          </h1>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">{lede}</p>
+          {specialty ? (
+            <Link
+              href="/request-help"
+              className="mt-4 inline-block text-xs font-medium text-white/70 underline-offset-2 hover:text-white hover:underline"
+            >
+              Change specialty
+            </Link>
+          ) : null}
         </div>
-      </header>
+      </section>
 
-      <main className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="font-display text-3xl leading-tight font-medium text-balance text-ink">
-          Get expert help
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-          Describe the problem in your own words. We&rsquo;ll work out who can fix it.
-        </p>
-
-        <div className="mt-8">
-          {/*
-            Two intakes, one flag. Lead capture is the current product — three
-            steps, no account, a human follows up. The full wizard is unchanged
-            underneath and returns whole when INTAKE_MODE=full, which is why the
-            matching and payment code was flagged off rather than deleted.
-          */}
-          {leadCapture ? (
-            <LeadWizard tiers={tierViews} />
+      <main className="mx-auto max-w-3xl px-6 py-8 sm:py-10">
+        {specialty || freeText ? (
+          leadCapture ? (
+            <LeadWizard tiers={tierViews} specialty={specialty} freeText={freeText} />
           ) : (
             <RequestWizard
               categories={grouped}
               tiers={tierViews}
               signedIn={signedIn}
               payBeforeMatch={serverEnv().DISPATCH_MODE !== "interest_pool"}
+              initialCategorySlug={specialty?.categorySlug ?? null}
+              initialSkillSlugs={specialty?.skillSlug ? [specialty.skillSlug] : []}
+              initialDescription={freeText ?? ""}
             />
-          )}
-        </div>
+          )
+        ) : (
+          <SpecialtyGrid />
+        )}
       </main>
 
-      {/* The page that asks for personal data should be one click from the notice
-          that explains what happens to it. */}
       <SiteFooter />
     </div>
   );

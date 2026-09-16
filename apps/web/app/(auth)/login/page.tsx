@@ -6,7 +6,7 @@ import { AuthForm } from "@/components/auth/auth-form";
 import { serverEnv } from "@/lib/env";
 import { getActor } from "@/lib/session";
 
-export const metadata: Metadata = { title: "Sign in" };
+export const metadata: Metadata = { title: "Freelancer login" };
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
@@ -16,20 +16,28 @@ export default async function LoginPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-medium tracking-tight text-ink">Sign in</h1>
-        <p className="mt-1.5 text-sm text-ink-muted">Welcome back.</p>
+        <h2 className="font-display text-2xl font-medium tracking-tight text-ink">
+          Login as Freelancer
+        </h2>
+        <p className="mt-1.5 text-sm text-ink-muted">
+          Sign in with Google or email to take matched Salesforce work.
+        </p>
       </div>
 
       <AuthForm
         mode="login"
-        googleEnabled={Boolean(env.GOOGLE_CLIENT_ID)}
+        googleEnabled={Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}
         redirectTo="/dashboard"
       />
 
       <p className="text-sm text-ink-muted">
-        No account?{" "}
+        New freelancer?{" "}
         <Link href="/register" className="font-medium text-accent hover:underline">
-          Create one
+          Create an account
+        </Link>
+        {" · "}
+        <Link href="/expert-application" className="font-medium text-accent hover:underline">
+          Apply as an expert
         </Link>
       </p>
     </div>

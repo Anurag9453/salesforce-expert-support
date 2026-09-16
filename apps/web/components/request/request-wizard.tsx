@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Alert, Badge, Field, Input, Textarea } from "@/components/ui";
 import { AttachmentPicker, type PendingAttachment } from "./attachment-picker";
+import { SkillPickerLight } from "./skill-picker";
 import { ChoiceCard, Progress, StepCard } from "./wizard-parts";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,9 @@ export function RequestWizard({
   tiers,
   signedIn = true,
   payBeforeMatch = true,
+  initialCategorySlug = null,
+  initialSkillSlugs = [],
+  initialDescription = "",
 }: {
   categories: TaxonomyCategory[];
   tiers: PricingTierView[];
@@ -58,15 +62,18 @@ export function RequestWizard({
    * showing them three people. There, payment follows the expert's confirmation.
    */
   payBeforeMatch?: boolean;
+  initialCategorySlug?: string | null;
+  initialSkillSlugs?: string[];
+  initialDescription?: string;
 }) {
   const router = useRouter();
 
   const [step, setStep] = useState<Step>("kind");
   const [kind, setKind] = useState<Kind | null>(null);
   const [tierId, setTierId] = useState("");
-  const [description, setDescription] = useState("");
-  const [categorySlug, setCategorySlug] = useState<string | null>(null);
-  const [skillSlugs, setSkillSlugs] = useState<string[]>([]);
+  const [description, setDescription] = useState(initialDescription);
+  const [categorySlug, setCategorySlug] = useState<string | null>(initialCategorySlug);
+  const [skillSlugs, setSkillSlugs] = useState<string[]>(initialSkillSlugs);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [leadSummary, setLeadSummary] = useState("");
   const [leadSent, setLeadSent] = useState(false);
@@ -206,6 +213,19 @@ export function RequestWizard({
 
   return (
     <div className="space-y-5">
+      {categorySlug && skillsForCategory.length > 0 && step !== "longterm" ? (
+        <div className="rounded-xl border border-border bg-surface-raised p-4 shadow-flat">
+          <p className="text-sm font-medium text-ink">Which skills is this about?</p>
+          <div className="mt-3">
+            <SkillPickerLight
+              skills={skillsForCategory}
+              selected={skillSlugs}
+              onChange={setSkillSlugs}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {kind === "instant" && <Progress index={stepIndex} labels={stepLabels} />}
       {error && <Alert tone="danger">{error}</Alert>}
 
@@ -240,7 +260,7 @@ export function RequestWizard({
           onNext={() => setStep("describe")}
           nextDisabled={!tier}
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2.5 sm:grid-cols-3">
             {tiers.map((option) => {
               const active = option.id === tierId;
               return (
@@ -250,23 +270,23 @@ export function RequestWizard({
                   aria-pressed={active}
                   onClick={() => setTierId(option.id)}
                   className={cn(
-                    "interactive rounded-xl border p-4 text-left",
+                    "interactive rounded-lg border px-3.5 py-3 text-left",
                     active
                       ? "border-accent bg-accent-subtle shadow-raised"
-                      : "border-border-strong bg-surface-raised hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-raised",
+                      : "border-border-strong bg-surface-raised hover:border-accent/40",
                   )}
                 >
+                  <span className="block text-sm font-medium text-ink">
+                    {option.durationMinutes} minutes
+                  </span>
                   <span
                     data-numeric
                     className={cn(
-                      "font-display block text-2xl leading-none font-medium",
+                      "mt-0.5 block text-base font-medium",
                       active ? "text-accent" : "text-ink",
                     )}
                   >
                     {formatMoney(option.priceCents, option.currency)}
-                  </span>
-                  <span className="mt-1.5 block text-sm text-ink">
-                    {option.durationMinutes} minutes
                   </span>
                 </button>
               );

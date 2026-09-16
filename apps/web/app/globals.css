@@ -430,6 +430,34 @@
     mask-image: radial-gradient(60rem 30rem at 50% 0%, black, transparent 75%);
   }
 
+  /*
+   * Landing hero: marketplace atmosphere rather than an operational dashboard.
+   * Deep navy, two coloured washes, and a faint grid so it reads as a talent
+   * platform instead of a blank marketing slab.
+   */
+  .landing-hero {
+    position: relative;
+    isolation: isolate;
+    color: var(--color-ink-inverse);
+    background:
+      radial-gradient(48rem 28rem at 8% -8%, oklch(52% 0.17 258 / 0.55), transparent 62%),
+      radial-gradient(36rem 22rem at 92% 8%, oklch(64% 0.14 152 / 0.22), transparent 58%),
+      linear-gradient(165deg, oklch(24% 0.045 258) 0%, oklch(16% 0.03 255) 55%, oklch(14% 0.025 250) 100%);
+  }
+  .landing-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image:
+      linear-gradient(oklch(100% 0 0 / 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(100% 0 0 / 0.045) 1px, transparent 1px);
+    background-size: 3.5rem 3.5rem;
+    mask-image: linear-gradient(180deg, black 40%, transparent 95%);
+  }
+
   /* Placeholder for a realtime panel that is mid-reconcile. */
   .shimmer {
     background-image: linear-gradient(

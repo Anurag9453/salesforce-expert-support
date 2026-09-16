@@ -119,9 +119,41 @@ const TAXONOMY: CategorySeed[] = [
     ],
   },
   {
+    slug: "agentforce",
+    name: "Agentforce",
+    order: 4,
+    skills: [
+      {
+        slug: "agentforce",
+        name: "Agentforce",
+        aliases: ["einstein copilot", "ai agent", "agentforce agent"],
+      },
+      {
+        slug: "agentforce-sales",
+        name: "Agentforce Sales",
+        aliases: ["agentforce sales agent"],
+      },
+      {
+        slug: "agentforce-service",
+        name: "Agentforce Service",
+        aliases: ["agentforce service agent"],
+      },
+      {
+        slug: "prompt-builder",
+        name: "Prompt Builder",
+        aliases: ["prompt template"],
+      },
+      {
+        slug: "einstein-ai",
+        name: "Einstein AI",
+        aliases: ["einstein", "einstein copilot"],
+      },
+    ],
+  },
+  {
     slug: "omnistudio",
     name: "OmniStudio",
-    order: 4,
+    order: 5,
     skills: [
       { slug: "omniscripts", name: "OmniScripts", aliases: ["omniscript"] },
       { slug: "dataraptors", name: "DataRaptors", aliases: ["dataraptor", "data raptor"] },
@@ -136,7 +168,7 @@ const TAXONOMY: CategorySeed[] = [
   {
     slug: "salesforce-devops",
     name: "Salesforce DevOps",
-    order: 5,
+    order: 6,
     skills: [
       { slug: "git", name: "Git", aliases: ["rebase", "merge conflict", "branch"] },
       { slug: "github", name: "GitHub", aliases: ["pull request", "github actions"] },
@@ -159,7 +191,7 @@ const TAXONOMY: CategorySeed[] = [
   {
     slug: "mulesoft",
     name: "MuleSoft",
-    order: 6,
+    order: 7,
     skills: [
       { slug: "anypoint-studio", name: "Anypoint Studio", aliases: ["anypoint"] },
       { slug: "mule-applications", name: "Mule Applications", aliases: ["mule app", "mule flow"] },

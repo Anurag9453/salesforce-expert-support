@@ -23,7 +23,9 @@ import {
 } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ChoiceCard, Progress, StepCard } from "./wizard-parts";
+import type { ResolvedSpecialty } from "@/lib/specialty";
+import { SkillPickerLight } from "./skill-picker";
+import { Progress, StepCard } from "./wizard-parts";
 
 /**
  * The whole customer-facing product: ask, leave your details, hear back.
@@ -138,6 +140,25 @@ const DESCRIBE_COPY: Record<
   },
 };
 
+function leadSummary(
+  description: string,
+  specialty: ResolvedSpecialty | null,
+  skillSlugs: readonly string[],
+): string {
+  if (!specialty) return description;
+  const selected = specialty.skills.filter((skill) => skillSlugs.includes(skill.slug));
+  const skillLine =
+    selected.length > 0 ? selected.map((skill) => skill.name).join(", ") : "not specified";
+  return `Specialty: ${specialty.categoryName}\nSkills: ${skillLine}\n\n${description}`;
+}
+
+function describePlaceholder(kind: Kind, specialty: ResolvedSpecialty | null): string {
+  const base = DESCRIBE_COPY[kind].placeholder;
+  const focus = specialty?.skillName ?? specialty?.categoryName;
+  if (!focus) return base;
+  return `Example: We need help with ${focus}. ${base.replace(/^Example:\s/u, "")}`;
+}
+
 type Kind = "INSTANT" | "SCHEDULED" | "LONG_TERM" | "CERTIFICATION";
 type Step =
   | "kind"
@@ -167,12 +188,12 @@ const FLOWS: Record<Kind, { steps: readonly Step[]; labels: readonly string[] }>
   /* Duration first, because it prices the request and shapes everything after. */
   INSTANT: {
     steps: ["kind", "duration", "describe", "details", "review"],
-    labels: ["Type", "Duration", "Problem", "Your details", "Review"],
+    labels: ["Type", "Duration", "Problem", "Details", "Review"],
   },
   /* The instant path plus one question: when. */
   SCHEDULED: {
     steps: ["kind", "duration", "describe", "when", "details", "review"],
-    labels: ["Type", "Duration", "Problem", "When", "Your details", "Review"],
+    labels: ["Type", "Duration", "Problem", "When", "Details", "Review"],
   },
   /*
     No duration: nobody buying a retainer is choosing between thirty and sixty
@@ -181,7 +202,7 @@ const FLOWS: Record<Kind, { steps: readonly Step[]; labels: readonly string[] }>
   */
   LONG_TERM: {
     steps: ["kind", "describe", "scope", "details", "review"],
-    labels: ["Type", "What you need", "Scope", "Your details", "Review"],
+    labels: ["Type", "Need", "Scope", "Details", "Review"],
   },
   /*
     Which exam comes before anything else, because it is the only question whose
@@ -192,15 +213,56 @@ const FLOWS: Record<Kind, { steps: readonly Step[]; labels: readonly string[] }>
   */
   CERTIFICATION: {
     steps: ["kind", "certification", "describe", "details", "review"],
-    labels: ["Type", "Certification", "What you need", "Your details", "Review"],
+    labels: ["Type", "Exam", "Need", "Details", "Review"],
   },
 };
 
-export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
+const KIND_LABELS: Record<Kind, string> = {
+  INSTANT: "Instant support",
+  SCHEDULED: "Scheduled session",
+  LONG_TERM: "Long-term hire",
+  CERTIFICATION: "Certification coaching",
+};
+
+const KINDS = [
+  {
+    id: "INSTANT" as const,
+    title: "Instant support",
+    lede: "Something is broken now. Sessions from $21.",
+  },
+  {
+    id: "SCHEDULED" as const,
+    title: "Scheduled session",
+    lede: "Same help, at a time you choose.",
+  },
+  {
+    id: "LONG_TERM" as const,
+    title: "Long-term hire",
+    lede: "A retainer or continuing engagement.",
+  },
+  {
+    id: "CERTIFICATION" as const,
+    title: "Certification coaching",
+    lede: "Prep for a specific Salesforce exam.",
+  },
+] as const;
+
+export function LeadWizard({
+  tiers,
+  specialty = null,
+  freeText = null,
+}: {
+  tiers: PricingTierView[];
+  specialty?: ResolvedSpecialty | null;
+  freeText?: string | null;
+}) {
   const [step, setStep] = useState<Step>("kind");
   const [kind, setKind] = useState<Kind | null>(null);
   const [tierId, setTierId] = useState("");
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(freeText ?? "");
+  const [skillSlugs, setSkillSlugs] = useState<string[]>(
+    specialty?.skillSlug ? [specialty.skillSlug] : [],
+  );
   const [title, setTitle] = useState("");
   const [engagementCount, setEngagementCount] = useState("");
   const [engagementUnit, setEngagementUnit] = useState("");
@@ -250,6 +312,9 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
   */
   const begin = (chosen: Kind) => {
     setKind(chosen);
+    if (chosen === "LONG_TERM" && title.trim() === "" && specialty) {
+      setTitle(`${specialty.skillName ?? specialty.categoryName} support`);
+    }
     setStep(FLOWS[chosen].steps[1] ?? "details");
   };
 
@@ -293,7 +358,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
           name: name.trim(),
           email: email.trim(),
           phone: phone.trim(),
-          summary: trimmed,
+          summary: leadSummary(trimmed, specialty, skillSlugs),
           supportType: kind ?? "INSTANT",
           ...(scheduled ? { preferredCallAt: callAt, preferredTimezone: callZone } : {}),
           ...(certifying
@@ -353,79 +418,84 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
   }
 
   return (
-    <div className="space-y-6">
-      <Progress index={steps.indexOf(step)} labels={labels} />
+    <div className="overflow-hidden rounded-xl border border-border bg-surface-raised shadow-raised">
+      <div className="border-b border-border px-4 py-5 sm:px-6">
+        <Progress
+          index={Math.max(0, steps.indexOf(step))}
+          labels={labels}
+          onSelect={(position) => setStep(steps[position] ?? "kind")}
+        />
+        {specialty ? (
+          <div className="mt-5">
+            <p className="text-xs font-medium text-ink-muted">Skills for this request</p>
+            <div className="mt-2">
+              <SkillPickerLight
+                skills={specialty.skills}
+                selected={skillSlugs}
+                onChange={setSkillSlugs}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
 
+      <div className="p-5 sm:p-6">
       {step === "kind" && (
-        <div className="stagger grid gap-4 sm:grid-cols-2">
-          <ChoiceCard
-            title="Instant support"
-            lede="Something is broken now."
-            body="Describe the problem and tell us how long you think you need. We come back to you with the right expert, usually the same working day."
-            badge={<Badge tone="available">One-off fix</Badge>}
-            action="Get help now"
-            onSelect={() => {
-              begin("INSTANT");
-            }}
-          />
-          <ChoiceCard
-            title="Scheduled support"
-            lede="You know when you want us."
-            body="Same as instant help, but you pick the time. Tell us when suits and which time zone you are in, and we call you then."
-            badge={<Badge tone="accent">Pick a time</Badge>}
-            action="Choose a time"
-            onSelect={() => {
-              begin("SCHEDULED");
-            }}
-          />
-          <ChoiceCard
-            title="Long-term support"
-            lede="Ongoing help, not a one-off."
-            body="A retainer or a continuing engagement. Tell us what you are trying to achieve and we will work out the shape of it with you."
-            badge={<Badge>Ongoing</Badge>}
-            action="Tell us what you need"
-            onSelect={() => {
-              begin("LONG_TERM");
-            }}
-          />
-          <ChoiceCard
-            title="Certification support"
-            lede="You are working towards an exam."
-            body="Preparation for a specific Salesforce credential — study guidance, the parts that are not landing, or a mock run before you sit it."
-            badge={<Badge tone="accent">Exam prep</Badge>}
-            action="Choose a certification"
-            onSelect={() => {
-              begin("CERTIFICATION");
-            }}
-          />
+        <div className="animate-rise-in">
+          <h2 className="font-display text-xl font-medium text-ink">What kind of help do you need?</h2>
+          <p className="mt-1 text-sm text-ink-muted">Pick one to continue. You can change it later.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {KINDS.map((option) => {
+              const active = kind === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => begin(option.id)}
+                  className={cn(
+                    "interactive rounded-xl border px-4 py-4 text-left",
+                    active
+                      ? "border-accent bg-accent-subtle shadow-raised"
+                      : "border-border bg-surface hover:border-accent/30 hover:shadow-raised",
+                  )}
+                >
+                  <span className="block text-sm font-semibold text-ink">{option.title}</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+                    {option.lede}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {step === "duration" && (
         <StepCard
+          framed={false}
           title="How long do you think you need?"
           hint="A rough idea is fine — it helps us match the right person. Nothing is charged now."
           onBack={goBack}
           onNext={goNext}
           nextDisabled={!tier}
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2.5 sm:grid-cols-3">
             {tiers.map((option) => (
               <button
                 key={option.id}
                 type="button"
                 onClick={() => setTierId(option.id)}
                 className={cn(
-                  "interactive rounded-xl border p-5 text-left transition-colors",
+                  "interactive rounded-lg border px-3.5 py-3 text-left transition-colors",
                   tierId === option.id
                     ? "border-accent bg-accent-subtle shadow-raised"
                     : "border-border bg-surface-raised hover:border-accent/40",
                 )}
               >
-                <span className="font-display block text-lg font-medium text-ink">
+                <span className="block text-sm font-medium text-ink">
                   {option.durationMinutes} minutes
                 </span>
-                <span data-numeric className="mt-1 block text-2xl font-medium text-accent">
+                <span data-numeric className="mt-0.5 block text-base font-medium text-accent">
                   {formatMoney(option.priceCents, option.currency)}
                 </span>
               </button>
@@ -436,6 +506,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "describe" && (
         <StepCard
+          framed={false}
           title={DESCRIBE_COPY[kind ?? "INSTANT"].title}
           hint={DESCRIBE_COPY[kind ?? "INSTANT"].hint}
           onBack={goBack}
@@ -537,9 +608,9 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
             hint={`${String(words)} of ${String(MAX_DESCRIPTION_WORDS)} words`}
           >
             <Textarea
-              rows={8}
+              rows={6}
               value={description}
-              placeholder={DESCRIBE_COPY[kind ?? "INSTANT"].placeholder}
+              placeholder={describePlaceholder(kind ?? "INSTANT", specialty)}
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
@@ -559,6 +630,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "when" && (
         <StepCard
+          framed={false}
           title="When shall we call you?"
           hint="Your local time. We confirm before anyone picks up the phone."
           onBack={goBack}
@@ -628,6 +700,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "scope" && (
         <StepCard
+          framed={false}
           title="How much support, and what budget?"
           hint="Rough is fine. It tells us who to put you with and what shape the engagement takes."
           onBack={goBack}
@@ -724,6 +797,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "certification" && (
         <StepCard
+          framed={false}
           title="Which certification are you working towards?"
           hint="Salesforce's own catalogue, grouped by track. Pick the last option if you have not decided."
           onBack={goBack}
@@ -773,6 +847,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "details" && (
         <StepCard
+          framed={false}
           title="How can we reach you?"
           hint="We'll use this to get back to you — usually the same working day."
           onBack={goBack}
@@ -823,6 +898,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
 
       {step === "review" && (
         <StepCard
+          framed={false}
           title="Does this look right?"
           hint="Check it over before we send it. Nothing is charged."
           onBack={goBack}
@@ -842,8 +918,18 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
               {phone.trim()}
             </Row>
             <Row label="Type" onEdit={() => setStep("kind")}>
-              {longTerm ? "Long-term support" : "Instant support"}
+              {KIND_LABELS[kind ?? "INSTANT"]}
             </Row>
+            {specialty ? (
+              <Row label="Skills" onEdit={() => setStep("kind")}>
+                {skillSlugs.length > 0
+                  ? specialty.skills
+                      .filter((skill) => skillSlugs.includes(skill.slug))
+                      .map((skill) => skill.name)
+                      .join(", ")
+                  : specialty.categoryName}
+              </Row>
+            ) : null}
             {longTerm && (
               <>
                 {/* The title lives on the describe step now, so Edit goes there. */}
@@ -908,6 +994,7 @@ export function LeadWizard({ tiers }: { tiers: PricingTierView[] }) {
           )}
         </StepCard>
       )}
+      </div>
     </div>
   );
 }

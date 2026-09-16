@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/landing/brand-mark";
 
 /**
  * The footer every public page shares.
@@ -47,10 +48,10 @@ export function SiteFooter() {
       <div className="mx-auto max-w-5xl px-6 py-12">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <p className="font-display text-sm font-medium text-ink">Salesforce Expert Support</p>
-            <p className="mt-2 max-w-xs text-xs leading-relaxed text-ink-subtle">
-              Describe a Salesforce problem once. We put it in front of someone who has already
-              solved it.
+            <BrandMark />
+            <p className="mt-3 max-w-xs text-xs leading-relaxed text-ink-subtle">
+              A professional marketplace for Salesforce talent. Post the work once — we match you to
+              a vetted expert who has already solved it.
             </p>
           </div>
 
@@ -83,7 +84,7 @@ export function SiteFooter() {
             Never share passwords, access tokens, private keys, or production customer data through
             this platform. Health Cloud technical support is in scope; actual patient data is not.
           </p>
-          <p className="text-xs whitespace-nowrap text-ink-subtle">
+          <p className="text-xs text-ink-subtle">
             © {String(new Date().getFullYear())} Salesforce Expert Support
           </p>
         </div>

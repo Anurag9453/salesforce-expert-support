@@ -4,14 +4,23 @@ import { redirect } from "next/navigation";
 import { ANONYMOUS } from "@sfx/domain";
 import { AuthForm } from "@/components/auth/auth-form";
 import { serverEnv } from "@/lib/env";
+import { safeInternalPath } from "@/lib/safe-path";
 import { getActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Create an account" };
 export const dynamic = "force-dynamic";
 
-export default async function RegisterPage() {
-  if ((await getActor()) !== ANONYMOUS) redirect("/dashboard");
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  const redirectTo = safeInternalPath(next, "/dashboard");
+  if ((await getActor()) !== ANONYMOUS) redirect(redirectTo);
   const env = serverEnv();
+  const signInHref =
+    redirectTo === "/hire" ? "/hire/start" : `/login${next ? `?next=${encodeURIComponent(redirectTo)}` : ""}`;
 
   return (
     <div className="space-y-6">
@@ -27,13 +36,14 @@ export default async function RegisterPage() {
 
       <AuthForm
         mode="register"
-        googleEnabled={Boolean(env.GOOGLE_CLIENT_ID)}
-        redirectTo="/dashboard"
+        googleEnabled={Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)}
+        redirectTo={redirectTo}
+        awaitVerification={env.MAILER_PROVIDER !== "mock"}
       />
 
       <p className="text-sm text-ink-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-accent hover:underline">
+        <Link href={signInHref} className="font-medium text-accent hover:underline">
           Sign in
         </Link>
       </p>
