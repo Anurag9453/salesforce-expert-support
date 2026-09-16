@@ -49,11 +49,8 @@ export default async function RequestHelpPage({
       .map((skill) => ({ slug: skill.slug, name: skill.name })),
   }));
 
-  const specialty = resolveSpecialty(
-    { q: params.q, specialty: params.specialty },
-    grouped,
-  );
-  const freeText = specialty ? null : (params.q?.trim() || null);
+  const specialty = resolveSpecialty({ q: params.q, specialty: params.specialty }, grouped);
+  const freeText = specialty ? null : params.q?.trim() || null;
 
   const tierViews: PricingTierView[] = tiers.map((tier) => ({
     id: tier.id,
@@ -98,7 +95,9 @@ export default async function RequestHelpPage({
               {specialty.skills.length > 0 ? ` · ${String(specialty.skills.length)} skills` : ""}
             </p>
           ) : (
-            <p className="text-xs font-medium tracking-wide text-white/55 uppercase">Request help</p>
+            <p className="text-xs font-medium tracking-wide text-white/55 uppercase">
+              Request help
+            </p>
           )}
           <h1 className="font-display mt-2 max-w-2xl text-[clamp(1.7rem,4.5vw,2.6rem)] leading-[1.15] font-semibold break-words text-wrap text-white">
             {headline}

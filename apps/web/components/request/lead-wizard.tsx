@@ -440,80 +440,84 @@ export function LeadWizard({
       </div>
 
       <div className="p-5 sm:p-6">
-      {step === "kind" && (
-        <div className="animate-rise-in">
-          <h2 className="font-display text-xl font-medium text-ink">What kind of help do you need?</h2>
-          <p className="mt-1 text-sm text-ink-muted">Pick one to continue. You can change it later.</p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {KINDS.map((option) => {
-              const active = kind === option.id;
-              return (
+        {step === "kind" && (
+          <div className="animate-rise-in">
+            <h2 className="font-display text-xl font-medium text-ink">
+              What kind of help do you need?
+            </h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Pick one to continue. You can change it later.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {KINDS.map((option) => {
+                const active = kind === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => begin(option.id)}
+                    className={cn(
+                      "interactive rounded-xl border px-4 py-4 text-left",
+                      active
+                        ? "border-accent bg-accent-subtle shadow-raised"
+                        : "border-border bg-surface hover:border-accent/30 hover:shadow-raised",
+                    )}
+                  >
+                    <span className="block text-sm font-semibold text-ink">{option.title}</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+                      {option.lede}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {step === "duration" && (
+          <StepCard
+            framed={false}
+            title="How long do you think you need?"
+            hint="A rough idea is fine — it helps us match the right person. Nothing is charged now."
+            onBack={goBack}
+            onNext={goNext}
+            nextDisabled={!tier}
+          >
+            <div className="grid gap-2.5 sm:grid-cols-3">
+              {tiers.map((option) => (
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => begin(option.id)}
+                  onClick={() => setTierId(option.id)}
                   className={cn(
-                    "interactive rounded-xl border px-4 py-4 text-left",
-                    active
+                    "interactive rounded-lg border px-3.5 py-3 text-left transition-colors",
+                    tierId === option.id
                       ? "border-accent bg-accent-subtle shadow-raised"
-                      : "border-border bg-surface hover:border-accent/30 hover:shadow-raised",
+                      : "border-border bg-surface-raised hover:border-accent/40",
                   )}
                 >
-                  <span className="block text-sm font-semibold text-ink">{option.title}</span>
-                  <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
-                    {option.lede}
+                  <span className="block text-sm font-medium text-ink">
+                    {option.durationMinutes} minutes
+                  </span>
+                  <span data-numeric className="mt-0.5 block text-base font-medium text-accent">
+                    {formatMoney(option.priceCents, option.currency)}
                   </span>
                 </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              ))}
+            </div>
+          </StepCard>
+        )}
 
-      {step === "duration" && (
-        <StepCard
-          framed={false}
-          title="How long do you think you need?"
-          hint="A rough idea is fine — it helps us match the right person. Nothing is charged now."
-          onBack={goBack}
-          onNext={goNext}
-          nextDisabled={!tier}
-        >
-          <div className="grid gap-2.5 sm:grid-cols-3">
-            {tiers.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setTierId(option.id)}
-                className={cn(
-                  "interactive rounded-lg border px-3.5 py-3 text-left transition-colors",
-                  tierId === option.id
-                    ? "border-accent bg-accent-subtle shadow-raised"
-                    : "border-border bg-surface-raised hover:border-accent/40",
-                )}
-              >
-                <span className="block text-sm font-medium text-ink">
-                  {option.durationMinutes} minutes
-                </span>
-                <span data-numeric className="mt-0.5 block text-base font-medium text-accent">
-                  {formatMoney(option.priceCents, option.currency)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </StepCard>
-      )}
-
-      {step === "describe" && (
-        <StepCard
-          framed={false}
-          title={DESCRIBE_COPY[kind ?? "INSTANT"].title}
-          hint={DESCRIBE_COPY[kind ?? "INSTANT"].hint}
-          onBack={goBack}
-          onNext={goNext}
-          nextDisabled={!describeReady}
-        >
-          {/*
+        {step === "describe" && (
+          <StepCard
+            framed={false}
+            title={DESCRIBE_COPY[kind ?? "INSTANT"].title}
+            hint={DESCRIBE_COPY[kind ?? "INSTANT"].hint}
+            onBack={goBack}
+            onNext={goNext}
+            nextDisabled={!describeReady}
+          >
+            {/*
             Asked here rather than on the scope step, and above the description
             rather than below it: a title is the thing you write first when you
             are naming a piece of work, and separating it from the description it
@@ -523,57 +527,57 @@ export function LeadWizard({
             sentence of the description, because somebody whose deploy is broken
             should not have to compose a subject line first.
           */}
-          {longTerm && (
-            <Field
-              id="lead-title"
-              label="Give this a title"
-              hint="A line your account manager can recognise it by."
-              required
-              error={fieldErrors.title}
-              className="mb-5"
-            >
-              <Input
-                id="lead-title"
-                value={title}
-                placeholder="Ongoing Apex and integration support"
-                onChange={(event) => setTitle(event.target.value)}
-                invalid={Boolean(fieldErrors.title)}
-              />
-            </Field>
-          )}
-
-          {certifying && (
-            <div className="mb-5 space-y-5">
+            {longTerm && (
               <Field
-                id="lead-exam-date"
-                label="When do you sit it?"
-                hint="Leave this blank if you have not booked a date yet."
-                error={fieldErrors.examDate}
+                id="lead-title"
+                label="Give this a title"
+                hint="A line your account manager can recognise it by."
+                required
+                error={fieldErrors.title}
+                className="mb-5"
               >
-                {/*
+                <Input
+                  id="lead-title"
+                  value={title}
+                  placeholder="Ongoing Apex and integration support"
+                  onChange={(event) => setTitle(event.target.value)}
+                  invalid={Boolean(fieldErrors.title)}
+                />
+              </Field>
+            )}
+
+            {certifying && (
+              <div className="mb-5 space-y-5">
+                <Field
+                  id="lead-exam-date"
+                  label="When do you sit it?"
+                  hint="Leave this blank if you have not booked a date yet."
+                  error={fieldErrors.examDate}
+                >
+                  {/*
                   A date, not a datetime — and so, unlike the callback step, no
                   time zone to ask for. An exam date is the same calendar day
                   everywhere, which is the one scheduling question that needs no
                   conversion.
                 */}
-                <Input
-                  id="lead-exam-date"
-                  type="date"
-                  value={examDate}
-                  min={today()}
-                  onChange={(event) => setExamDate(event.target.value)}
-                  invalid={Boolean(fieldErrors.examDate)}
-                />
-              </Field>
+                  <Input
+                    id="lead-exam-date"
+                    type="date"
+                    value={examDate}
+                    min={today()}
+                    onChange={(event) => setExamDate(event.target.value)}
+                    invalid={Boolean(fieldErrors.examDate)}
+                  />
+                </Field>
 
-              <Field
-                id="lead-help"
-                label="What do you need help with?"
-                hint="Pick everything that applies."
-                required
-                error={fieldErrors.certificationHelp}
-              >
-                {/*
+                <Field
+                  id="lead-help"
+                  label="What do you need help with?"
+                  hint="Pick everything that applies."
+                  required
+                  error={fieldErrors.certificationHelp}
+                >
+                  {/*
                   Checkboxes rather than a second text box. These route to
                   different people — a study plan is a conversation, a weak topic
                   is a tutorial, a retake needs someone who asks what went wrong
@@ -582,236 +586,236 @@ export function LeadWizard({
                   The description below still matters and is still required: this
                   says which kind of help, and that says what is actually going on.
                 */}
-                <div className="space-y-2.5">
-                  {CERTIFICATION_HELP_OPTIONS.map((option) => (
-                    <Checkbox
-                      key={option.value}
-                      checked={helpNeeded.includes(option.value)}
-                      onChange={(event) => {
-                        setHelpNeeded((current) =>
-                          event.target.checked
-                            ? [...current, option.value]
-                            : current.filter((value) => value !== option.value),
-                        );
-                      }}
-                      label={option.label}
-                    />
-                  ))}
-                </div>
-              </Field>
-            </div>
-          )}
+                  <div className="space-y-2.5">
+                    {CERTIFICATION_HELP_OPTIONS.map((option) => (
+                      <Checkbox
+                        key={option.value}
+                        checked={helpNeeded.includes(option.value)}
+                        onChange={(event) => {
+                          setHelpNeeded((current) =>
+                            event.target.checked
+                              ? [...current, option.value]
+                              : current.filter((value) => value !== option.value),
+                          );
+                        }}
+                        label={option.label}
+                      />
+                    ))}
+                  </div>
+                </Field>
+              </div>
+            )}
 
-          <Field
-            id="lead-problem"
-            label={DESCRIBE_COPY[kind ?? "INSTANT"].label}
-            hint={`${String(words)} of ${String(MAX_DESCRIPTION_WORDS)} words`}
-          >
-            <Textarea
-              rows={6}
-              value={description}
-              placeholder={describePlaceholder(kind ?? "INSTANT", specialty)}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </Field>
+            <Field
+              id="lead-problem"
+              label={DESCRIBE_COPY[kind ?? "INSTANT"].label}
+              hint={`${String(words)} of ${String(MAX_DESCRIPTION_WORDS)} words`}
+            >
+              <Textarea
+                rows={6}
+                value={description}
+                placeholder={describePlaceholder(kind ?? "INSTANT", specialty)}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </Field>
 
-          {/*
+            {/*
             Said plainly, because this box is public and whatever lands in it is
             read by our team. The scanner catches pasted keys and `key=value`
             secrets, but it cannot catch someone *describing* a password in a
             sentence — so the warning does the part the code cannot.
           */}
-          <Alert tone="warning" className="mt-4" title="Please don't include">
-            Passwords, security tokens, API keys, or real customer data. Describe the problem — we
-            never need your credentials to help with it.
-          </Alert>
-        </StepCard>
-      )}
+            <Alert tone="warning" className="mt-4" title="Please don't include">
+              Passwords, security tokens, API keys, or real customer data. Describe the problem — we
+              never need your credentials to help with it.
+            </Alert>
+          </StepCard>
+        )}
 
-      {step === "when" && (
-        <StepCard
-          framed={false}
-          title="When shall we call you?"
-          hint="Your local time. We confirm before anyone picks up the phone."
-          onBack={goBack}
-          onNext={goNext}
-          nextDisabled={!whenReady}
-        >
-          <div className="space-y-4">
-            <Field
-              id="lead-call-at"
-              label="Preferred date and time"
-              required
-              error={fieldErrors.preferredCallAt}
-            >
-              <Input
+        {step === "when" && (
+          <StepCard
+            framed={false}
+            title="When shall we call you?"
+            hint="Your local time. We confirm before anyone picks up the phone."
+            onBack={goBack}
+            onNext={goNext}
+            nextDisabled={!whenReady}
+          >
+            <div className="space-y-4">
+              <Field
                 id="lead-call-at"
-                type="datetime-local"
-                value={callAt}
-                /*
+                label="Preferred date and time"
+                required
+                error={fieldErrors.preferredCallAt}
+              >
+                <Input
+                  id="lead-call-at"
+                  type="datetime-local"
+                  value={callAt}
+                  /*
                   No past times. `min` is advisory — a browser will let a
                   determined person past it and the server does not currently
                   reject a past instant, which is a gap worth knowing about
                   rather than one this attribute closes.
                 */
-                min={minCallAt()}
-                onChange={(event) => setCallAt(event.target.value)}
-                invalid={Boolean(fieldErrors.preferredCallAt)}
-              />
-            </Field>
+                  min={minCallAt()}
+                  onChange={(event) => setCallAt(event.target.value)}
+                  invalid={Boolean(fieldErrors.preferredCallAt)}
+                />
+              </Field>
 
-            <Field
-              id="lead-call-zone"
-              label="Your time zone"
-              hint="Pre-filled from your device. Change it if that is wrong."
-              required
-              error={fieldErrors.preferredTimezone}
-            >
-              <Select
+              <Field
                 id="lead-call-zone"
-                value={callZone}
-                onChange={(event) => setCallZone(event.target.value)}
-                invalid={Boolean(fieldErrors.preferredTimezone)}
+                label="Your time zone"
+                hint="Pre-filled from your device. Change it if that is wrong."
+                required
+                error={fieldErrors.preferredTimezone}
               >
-                <option value="">Select a time zone…</option>
-                {ZONE_OPTIONS.map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zoneLabel(zone)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            {callAt !== "" && callZone !== "" && (
-              <p className="text-sm text-ink-muted">
-                We have you down for{" "}
-                <span className="text-ink">
-                  {new Date(callAt).toLocaleString("en-GB", {
-                    dateStyle: "full",
-                    timeStyle: "short",
-                  })}
-                </span>{" "}
-                in {zoneLabel(callZone)}.
-              </p>
-            )}
-          </div>
-        </StepCard>
-      )}
-
-      {step === "scope" && (
-        <StepCard
-          framed={false}
-          title="How much support, and what budget?"
-          hint="Rough is fine. It tells us who to put you with and what shape the engagement takes."
-          onBack={goBack}
-          onNext={goNext}
-          nextDisabled={!scopeReady}
-        >
-          <div className="space-y-5">
-            <Field
-              id="lead-engagement"
-              label="How long are you looking for support?"
-              required
-              error={fieldErrors.engagementCount ?? fieldErrors.engagementUnit}
-            >
-              <div className="grid grid-cols-2 gap-3">
                 <Select
-                  id="lead-engagement"
-                  aria-label="How many"
-                  value={engagementCount}
-                  onChange={(event) => setEngagementCount(event.target.value)}
-                  invalid={Boolean(fieldErrors.engagementCount)}
+                  id="lead-call-zone"
+                  value={callZone}
+                  onChange={(event) => setCallZone(event.target.value)}
+                  invalid={Boolean(fieldErrors.preferredTimezone)}
                 >
-                  <option value="">How many…</option>
-                  {Array.from({ length: 10 }, (_, n) => (
-                    <option key={n} value={n}>
-                      {n}
+                  <option value="">Select a time zone…</option>
+                  {ZONE_OPTIONS.map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zoneLabel(zone)}
                     </option>
                   ))}
                 </Select>
-                <Select
-                  aria-label="Weeks, months or years"
-                  value={engagementUnit}
-                  onChange={(event) => setEngagementUnit(event.target.value)}
-                  invalid={Boolean(fieldErrors.engagementUnit)}
-                >
-                  <option value="">Period…</option>
-                  <option value="WEEK">{engagementCount === "1" ? "Week" : "Weeks"}</option>
-                  <option value="MONTH">{engagementCount === "1" ? "Month" : "Months"}</option>
-                  <option value="YEAR">{engagementCount === "1" ? "Year" : "Years"}</option>
-                </Select>
-              </div>
-            </Field>
+              </Field>
 
-            <Field
-              id="lead-budget"
-              label="What is your estimated budget?"
-              hint="In US dollars. An estimate is genuinely useful — it is not a commitment."
-              required
-              error={fieldErrors.budgetAmount ?? fieldErrors.budgetBasis}
-            >
-              <div className="grid grid-cols-[10rem_1fr] gap-3">
-                <Select
-                  aria-label="Per hour or per month"
-                  value={budgetBasis}
-                  onChange={(event) => setBudgetBasis(event.target.value)}
-                >
-                  <option value="MONTHLY">Per month</option>
-                  <option value="HOURLY">Per hour</option>
-                </Select>
-                <div className="relative">
-                  <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-ink-subtle">
-                    $
-                  </span>
-                  <Input
-                    id="lead-budget"
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="0.01"
-                    value={budgetAmount}
-                    placeholder={budgetBasis === "HOURLY" ? "75.00" : "4000.00"}
-                    onChange={(event) => setBudgetAmount(event.target.value)}
-                    invalid={Boolean(fieldErrors.budgetAmount)}
-                    className="pl-7"
-                  />
+              {callAt !== "" && callZone !== "" && (
+                <p className="text-sm text-ink-muted">
+                  We have you down for{" "}
+                  <span className="text-ink">
+                    {new Date(callAt).toLocaleString("en-GB", {
+                      dateStyle: "full",
+                      timeStyle: "short",
+                    })}
+                  </span>{" "}
+                  in {zoneLabel(callZone)}.
+                </p>
+              )}
+            </div>
+          </StepCard>
+        )}
+
+        {step === "scope" && (
+          <StepCard
+            framed={false}
+            title="How much support, and what budget?"
+            hint="Rough is fine. It tells us who to put you with and what shape the engagement takes."
+            onBack={goBack}
+            onNext={goNext}
+            nextDisabled={!scopeReady}
+          >
+            <div className="space-y-5">
+              <Field
+                id="lead-engagement"
+                label="How long are you looking for support?"
+                required
+                error={fieldErrors.engagementCount ?? fieldErrors.engagementUnit}
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <Select
+                    id="lead-engagement"
+                    aria-label="How many"
+                    value={engagementCount}
+                    onChange={(event) => setEngagementCount(event.target.value)}
+                    invalid={Boolean(fieldErrors.engagementCount)}
+                  >
+                    <option value="">How many…</option>
+                    {Array.from({ length: 10 }, (_, n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    aria-label="Weeks, months or years"
+                    value={engagementUnit}
+                    onChange={(event) => setEngagementUnit(event.target.value)}
+                    invalid={Boolean(fieldErrors.engagementUnit)}
+                  >
+                    <option value="">Period…</option>
+                    <option value="WEEK">{engagementCount === "1" ? "Week" : "Weeks"}</option>
+                    <option value="MONTH">{engagementCount === "1" ? "Month" : "Months"}</option>
+                    <option value="YEAR">{engagementCount === "1" ? "Year" : "Years"}</option>
+                  </Select>
                 </div>
-              </div>
-            </Field>
+              </Field>
 
-            {/*
+              <Field
+                id="lead-budget"
+                label="What is your estimated budget?"
+                hint="In US dollars. An estimate is genuinely useful — it is not a commitment."
+                required
+                error={fieldErrors.budgetAmount ?? fieldErrors.budgetBasis}
+              >
+                <div className="grid grid-cols-[10rem_1fr] gap-3">
+                  <Select
+                    aria-label="Per hour or per month"
+                    value={budgetBasis}
+                    onChange={(event) => setBudgetBasis(event.target.value)}
+                  >
+                    <option value="MONTHLY">Per month</option>
+                    <option value="HOURLY">Per hour</option>
+                  </Select>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-ink-subtle">
+                      $
+                    </span>
+                    <Input
+                      id="lead-budget"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={budgetAmount}
+                      placeholder={budgetBasis === "HOURLY" ? "75.00" : "4000.00"}
+                      onChange={(event) => setBudgetAmount(event.target.value)}
+                      invalid={Boolean(fieldErrors.budgetAmount)}
+                      className="pl-7"
+                    />
+                  </div>
+                </div>
+              </Field>
+
+              {/*
               Recorded as its own field rather than inferred from a round number.
               Whether someone *volunteered* that a figure is movable is a
               different signal from whether it happens to be movable, and the
               first is the one worth having before a call.
             */}
-            <Checkbox
-              id="lead-negotiable"
-              checked={budgetNegotiable}
-              onChange={(event) => setBudgetNegotiable(event.target.checked)}
-              label="This is negotiable"
-            />
-          </div>
-        </StepCard>
-      )}
+              <Checkbox
+                id="lead-negotiable"
+                checked={budgetNegotiable}
+                onChange={(event) => setBudgetNegotiable(event.target.checked)}
+                label="This is negotiable"
+              />
+            </div>
+          </StepCard>
+        )}
 
-      {step === "certification" && (
-        <StepCard
-          framed={false}
-          title="Which certification are you working towards?"
-          hint="Salesforce's own catalogue, grouped by track. Pick the last option if you have not decided."
-          onBack={goBack}
-          onNext={goNext}
-          nextDisabled={!certificationReady}
-        >
-          <Field
-            id="lead-certification"
-            label="Certification"
-            hint="The exam you are preparing for."
-            required
-            error={fieldErrors.certification}
+        {step === "certification" && (
+          <StepCard
+            framed={false}
+            title="Which certification are you working towards?"
+            hint="Salesforce's own catalogue, grouped by track. Pick the last option if you have not decided."
+            onBack={goBack}
+            onNext={goNext}
+            nextDisabled={!certificationReady}
           >
-            {/*
+            <Field
+              id="lead-certification"
+              label="Certification"
+              hint="The exam you are preparing for."
+              required
+              error={fieldErrors.certification}
+            >
+              {/*
               Grouped by track rather than one flat list of forty-eight. Almost
               nobody browses this — they arrive knowing "something Developer" or
               "something Architect" — and the headings turn a scan of the whole
@@ -821,179 +825,179 @@ export function LeadWizard({
               are the ones people already know. Worth revisiting if the list
               grows enough to need a search box.
             */}
-            <Select
-              id="lead-certification"
-              value={certification}
-              onChange={(event) => {
-                setCertification(event.target.value);
-              }}
-              invalid={Boolean(fieldErrors.certification)}
-            >
-              <option value="">Select a certification…</option>
-              {CERTIFICATION_TRACKS.map((group) => (
-                <optgroup key={group.track} label={group.track}>
-                  {group.certifications.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-              <option value={CERTIFICATION_UNDECIDED}>{CERTIFICATION_UNDECIDED}</option>
-            </Select>
-          </Field>
-        </StepCard>
-      )}
-
-      {step === "details" && (
-        <StepCard
-          framed={false}
-          title="How can we reach you?"
-          hint="We'll use this to get back to you — usually the same working day."
-          onBack={goBack}
-          onNext={goNext}
-          nextLabel="Review"
-          nextDisabled={!detailsReady}
-        >
-          <div className="space-y-4">
-            <Field id="lead-name" label="Your name" error={fieldErrors.name}>
-              <Input
-                value={name}
-                autoComplete="name"
-                placeholder="Priya Raghavan"
-                onChange={(event) => setName(event.target.value)}
-              />
+              <Select
+                id="lead-certification"
+                value={certification}
+                onChange={(event) => {
+                  setCertification(event.target.value);
+                }}
+                invalid={Boolean(fieldErrors.certification)}
+              >
+                <option value="">Select a certification…</option>
+                {CERTIFICATION_TRACKS.map((group) => (
+                  <optgroup key={group.track} label={group.track}>
+                    {group.certifications.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                <option value={CERTIFICATION_UNDECIDED}>{CERTIFICATION_UNDECIDED}</option>
+              </Select>
             </Field>
-            <Field id="lead-email" label="Email" error={fieldErrors.email}>
-              <Input
-                type="email"
-                value={email}
-                autoComplete="email"
-                placeholder="you@company.com"
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </Field>
-            <Field id="lead-phone" label="Phone" error={fieldErrors.phone}>
-              <Input
-                type="tel"
-                value={phone}
-                autoComplete="tel"
-                placeholder="+91 98765 43210"
-                onChange={(event) => setPhone(event.target.value)}
-              />
-            </Field>
-          </div>
+          </StepCard>
+        )}
 
-          {tier && (
-            <p className="mt-5 border-t border-border pt-4 text-sm text-ink-muted">
-              You asked for{" "}
-              <span className="text-ink">
-                {tier.durationMinutes} minutes · {formatMoney(tier.priceCents, tier.currency)}
-              </span>
-              . Nothing is charged now — we&rsquo;ll agree everything with you first.
-            </p>
-          )}
-        </StepCard>
-      )}
+        {step === "details" && (
+          <StepCard
+            framed={false}
+            title="How can we reach you?"
+            hint="We'll use this to get back to you — usually the same working day."
+            onBack={goBack}
+            onNext={goNext}
+            nextLabel="Review"
+            nextDisabled={!detailsReady}
+          >
+            <div className="space-y-4">
+              <Field id="lead-name" label="Your name" error={fieldErrors.name}>
+                <Input
+                  value={name}
+                  autoComplete="name"
+                  placeholder="Priya Raghavan"
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+              <Field id="lead-email" label="Email" error={fieldErrors.email}>
+                <Input
+                  type="email"
+                  value={email}
+                  autoComplete="email"
+                  placeholder="you@company.com"
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </Field>
+              <Field id="lead-phone" label="Phone" error={fieldErrors.phone}>
+                <Input
+                  type="tel"
+                  value={phone}
+                  autoComplete="tel"
+                  placeholder="+91 98765 43210"
+                  onChange={(event) => setPhone(event.target.value)}
+                />
+              </Field>
+            </div>
 
-      {step === "review" && (
-        <StepCard
-          framed={false}
-          title="Does this look right?"
-          hint="Check it over before we send it. Nothing is charged."
-          onBack={goBack}
-          onNext={() => void submit()}
-          nextLoading={submitting}
-          nextLabel={submitting ? "Sending…" : "Send my request"}
-          nextDisabled={submitting}
-        >
-          <dl className="divide-y divide-border">
-            <Row label="Name" onEdit={() => setStep("details")}>
-              {name.trim()}
-            </Row>
-            <Row label="Email" onEdit={() => setStep("details")}>
-              {email.trim()}
-            </Row>
-            <Row label="Phone" onEdit={() => setStep("details")}>
-              {phone.trim()}
-            </Row>
-            <Row label="Type" onEdit={() => setStep("kind")}>
-              {KIND_LABELS[kind ?? "INSTANT"]}
-            </Row>
-            {specialty ? (
-              <Row label="Skills" onEdit={() => setStep("kind")}>
-                {skillSlugs.length > 0
-                  ? specialty.skills
-                      .filter((skill) => skillSlugs.includes(skill.slug))
-                      .map((skill) => skill.name)
-                      .join(", ")
-                  : specialty.categoryName}
-              </Row>
-            ) : null}
-            {longTerm && (
-              <>
-                {/* The title lives on the describe step now, so Edit goes there. */}
-                <Row label="Title" onEdit={() => setStep("describe")}>
-                  {title.trim()}
-                </Row>
-                <Row label="For how long" onEdit={() => setStep("scope")}>
-                  {engagementCount} {UNIT_LABELS[engagementUnit] ?? ""}
-                </Row>
-                <Row label="Budget" onEdit={() => setStep("scope")}>
-                  ${budgetAmount} {budgetBasis === "HOURLY" ? "per hour" : "per month"}
-                  {budgetNegotiable && <span className="text-ink-muted"> · negotiable</span>}
-                </Row>
-              </>
+            {tier && (
+              <p className="mt-5 border-t border-border pt-4 text-sm text-ink-muted">
+                You asked for{" "}
+                <span className="text-ink">
+                  {tier.durationMinutes} minutes · {formatMoney(tier.priceCents, tier.currency)}
+                </span>
+                . Nothing is charged now — we&rsquo;ll agree everything with you first.
+              </p>
             )}
-            {certifying && (
-              <>
-                <Row label="Certification" onEdit={() => setStep("certification")}>
-                  {certification}
-                </Row>
-                <Row label="Exam date" onEdit={() => setStep("describe")}>
-                  {examDate === ""
-                    ? "Not booked yet"
-                    : new Date(`${examDate}T00:00:00`).toLocaleDateString("en-GB", {
-                        dateStyle: "full",
-                      })}
-                </Row>
-                <Row label="Help needed" onEdit={() => setStep("describe")}>
-                  {helpNeeded.join(", ")}
-                </Row>
-              </>
-            )}
+          </StepCard>
+        )}
 
-            {scheduled && (
-              <Row label="Call at" onEdit={() => setStep("when")}>
-                {callAt === ""
-                  ? "Not chosen"
-                  : `${new Date(callAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${zoneLabel(callZone)}`}
+        {step === "review" && (
+          <StepCard
+            framed={false}
+            title="Does this look right?"
+            hint="Check it over before we send it. Nothing is charged."
+            onBack={goBack}
+            onNext={() => void submit()}
+            nextLoading={submitting}
+            nextLabel={submitting ? "Sending…" : "Send my request"}
+            nextDisabled={submitting}
+          >
+            <dl className="divide-y divide-border">
+              <Row label="Name" onEdit={() => setStep("details")}>
+                {name.trim()}
               </Row>
-            )}
-            {!longTerm && (
-              <Row label="Session" onEdit={() => setStep("duration")}>
-                {tier
-                  ? `${String(tier.durationMinutes)} minutes · ${formatMoney(tier.priceCents, tier.currency)}`
-                  : "Not chosen"}
+              <Row label="Email" onEdit={() => setStep("details")}>
+                {email.trim()}
               </Row>
-            )}
-            <Row label="Your problem" onEdit={() => setStep("describe")}>
-              {/*
+              <Row label="Phone" onEdit={() => setStep("details")}>
+                {phone.trim()}
+              </Row>
+              <Row label="Type" onEdit={() => setStep("kind")}>
+                {KIND_LABELS[kind ?? "INSTANT"]}
+              </Row>
+              {specialty ? (
+                <Row label="Skills" onEdit={() => setStep("kind")}>
+                  {skillSlugs.length > 0
+                    ? specialty.skills
+                        .filter((skill) => skillSlugs.includes(skill.slug))
+                        .map((skill) => skill.name)
+                        .join(", ")
+                    : specialty.categoryName}
+                </Row>
+              ) : null}
+              {longTerm && (
+                <>
+                  {/* The title lives on the describe step now, so Edit goes there. */}
+                  <Row label="Title" onEdit={() => setStep("describe")}>
+                    {title.trim()}
+                  </Row>
+                  <Row label="For how long" onEdit={() => setStep("scope")}>
+                    {engagementCount} {UNIT_LABELS[engagementUnit] ?? ""}
+                  </Row>
+                  <Row label="Budget" onEdit={() => setStep("scope")}>
+                    ${budgetAmount} {budgetBasis === "HOURLY" ? "per hour" : "per month"}
+                    {budgetNegotiable && <span className="text-ink-muted"> · negotiable</span>}
+                  </Row>
+                </>
+              )}
+              {certifying && (
+                <>
+                  <Row label="Certification" onEdit={() => setStep("certification")}>
+                    {certification}
+                  </Row>
+                  <Row label="Exam date" onEdit={() => setStep("describe")}>
+                    {examDate === ""
+                      ? "Not booked yet"
+                      : new Date(`${examDate}T00:00:00`).toLocaleDateString("en-GB", {
+                          dateStyle: "full",
+                        })}
+                  </Row>
+                  <Row label="Help needed" onEdit={() => setStep("describe")}>
+                    {helpNeeded.join(", ")}
+                  </Row>
+                </>
+              )}
+
+              {scheduled && (
+                <Row label="Call at" onEdit={() => setStep("when")}>
+                  {callAt === ""
+                    ? "Not chosen"
+                    : `${new Date(callAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${zoneLabel(callZone)}`}
+                </Row>
+              )}
+              {!longTerm && (
+                <Row label="Session" onEdit={() => setStep("duration")}>
+                  {tier
+                    ? `${String(tier.durationMinutes)} minutes · ${formatMoney(tier.priceCents, tier.currency)}`
+                    : "Not chosen"}
+                </Row>
+              )}
+              <Row label="Your problem" onEdit={() => setStep("describe")}>
+                {/*
                 Shown whole rather than truncated. This is the last chance to
                 catch something that should not have been typed into a public
                 box, and a customer cannot check text they cannot see.
               */}
-              <span className="block whitespace-pre-wrap">{trimmed}</span>
-            </Row>
-          </dl>
+                <span className="block whitespace-pre-wrap">{trimmed}</span>
+              </Row>
+            </dl>
 
-          {error && (
-            <Alert tone="danger" className="mt-4">
-              {error}
-            </Alert>
-          )}
-        </StepCard>
-      )}
+            {error && (
+              <Alert tone="danger" className="mt-4">
+                {error}
+              </Alert>
+            )}
+          </StepCard>
+        )}
       </div>
     </div>
   );

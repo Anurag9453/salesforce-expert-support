@@ -32,10 +32,7 @@ export function Progress({
           >
             {done ? (
               <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M6.2 10.6 3.8 8.2l-.9.9 3.3 3.3 7-7-.9-.9z"
-                />
+                <path fill="currentColor" d="M6.2 10.6 3.8 8.2l-.9.9 3.3 3.3 7-7-.9-.9z" />
               </svg>
             ) : (
               position + 1

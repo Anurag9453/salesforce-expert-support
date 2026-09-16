@@ -11,9 +11,21 @@ export const metadata: Metadata = {
 };
 
 const STEPS = [
-  { n: "1", title: "Describe the work", body: "Instant, scheduled, retainer, or certification — no account needed." },
-  { n: "2", title: "Get matched", body: "We route it to a vetted expert with that skill, not a keyword match." },
-  { n: "3", title: "Start the session", body: "They accept, you talk. Platform pricing — no bidding." },
+  {
+    n: "1",
+    title: "Describe the work",
+    body: "Instant, scheduled, retainer, or certification — no account needed.",
+  },
+  {
+    n: "2",
+    title: "Get matched",
+    body: "We route it to a vetted expert with that skill, not a keyword match.",
+  },
+  {
+    n: "3",
+    title: "Start the session",
+    body: "They accept, you talk. Platform pricing — no bidding.",
+  },
 ] as const;
 
 export default function HirePage() {

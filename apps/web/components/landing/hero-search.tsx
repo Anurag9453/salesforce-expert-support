@@ -34,7 +34,10 @@ export function HeroSearch() {
         />
         <button
           type="submit"
-          className={buttonClasses({ size: "md", className: "m-1.5 w-[calc(100%-0.75rem)] shrink-0 sm:w-auto" })}
+          className={buttonClasses({
+            size: "md",
+            className: "m-1.5 w-[calc(100%-0.75rem)] shrink-0 sm:w-auto",
+          })}
         >
           Find experts
         </button>

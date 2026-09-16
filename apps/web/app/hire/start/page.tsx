@@ -45,7 +45,10 @@ export default async function HireStartPage() {
 
           <p className="text-sm text-ink-muted">
             New here?{" "}
-            <Link href={`/register?next=${encodeURIComponent(HIRE)}`} className="font-medium text-accent hover:underline">
+            <Link
+              href={`/register?next=${encodeURIComponent(HIRE)}`}
+              className="font-medium text-accent hover:underline"
+            >
               Create an account
             </Link>
             {" · "}

@@ -9,8 +9,7 @@ export const metadata: Metadata = {
   title: {
     absolute: "Salesforce Expert Support — Hire talent or work as a freelancer",
   },
-  description:
-    "Hire vetted Salesforce experts, or log in as a freelancer to take matched work.",
+  description: "Hire vetted Salesforce experts, or log in as a freelancer to take matched work.",
 };
 
 export const dynamic = "force-dynamic";
@@ -36,7 +35,9 @@ export default async function Page() {
               href={signedIn ? "/hire" : "/hire/start"}
               className="interactive rounded-xl bg-white p-6 shadow-lifted hover:-translate-y-0.5"
             >
-              <p className="text-xs font-semibold tracking-wide text-accent uppercase">I am a client</p>
+              <p className="text-xs font-semibold tracking-wide text-accent uppercase">
+                I am a client
+              </p>
               <h2 className="mt-2 text-lg font-semibold text-ink">Hire Talent</h2>
               <p className="mt-2 text-sm leading-relaxed text-ink-muted">
                 Browse specialties like Agentforce, Sales Cloud, and Apex, then request an expert.

@@ -20,7 +20,9 @@ export default async function RegisterPage({
   if ((await getActor()) !== ANONYMOUS) redirect(redirectTo);
   const env = serverEnv();
   const signInHref =
-    redirectTo === "/hire" ? "/hire/start" : `/login${next ? `?next=${encodeURIComponent(redirectTo)}` : ""}`;
+    redirectTo === "/hire"
+      ? "/hire/start"
+      : `/login${next ? `?next=${encodeURIComponent(redirectTo)}` : ""}`;
 
   return (
     <div className="space-y-6">
