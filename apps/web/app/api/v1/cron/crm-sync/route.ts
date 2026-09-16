@@ -17,6 +17,17 @@ export const dynamic = "force-dynamic";
  * — which is the same code path the worker's sweep uses. There is deliberately no
  * second implementation of "find the stuck ones and try again".
  *
+ * ## Why daily and not hourly
+ *
+ * `vercel.json` schedules this once a day, not once an hour as first written. Hobby
+ * accounts only permit daily cron expressions, and Vercel rejects the *deployment*
+ * — not the cron — when it sees a more frequent one, so the hourly schedule silently
+ * stopped every push from building for a month. Daily is the cadence this plan
+ * allows, and a lead the inline push dropped now waits up to a day rather than an
+ * hour. That is the cost of the net being cheap; the inline push is still the
+ * mechanism. Pro lifts the limit, and an external scheduler calling this endpoint
+ * with `CRON_SECRET` would too.
+ *
  * ## Why this is guarded rather than public
  *
  * It is cheap to call and it talks to a third party, so an open endpoint is a way
